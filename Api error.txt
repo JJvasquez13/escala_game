@@ -1,0 +1,845 @@
+Game.js:
+const mongoose = require("mongoose");
+
+const GameSchema = new mongoose.Schema(
+  {
+    gameCode: {
+      type: String,
+      required: true,
+      unique: true,
+    },
+    players: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Player",
+      },
+    ],
+    startTime: {
+      type: Date,
+      default: Date.now,
+    },
+    endTime: {
+      type: Date,
+    },
+    state: { // Cambiado de status a state
+      type: String,
+      enum: ["waiting", "playing", "finished"],
+      default: "waiting",
+    },
+    creatorId: { // Nuevo campo para el ID del creador
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Player",
+    },
+    winners: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Player",
+      },
+    ],
+    materialWeights: {
+      red: { type: Number, min: 1, max: 20 },
+      yellow: { type: Number, min: 1, max: 20 },
+      green: { type: Number, min: 1, max: 20 },
+      blue: { type: Number, min: 1, max: 20 },
+      purple: { type: Number, min: 1, max: 20 },
+    },
+    mainBalanceState: {
+      leftSide: [
+        {
+          type: {
+            type: String,
+            enum: ["red", "yellow", "green", "blue", "purple"],
+          },
+          playerId: { type: mongoose.Schema.Types.ObjectId, ref: "Player" },
+        },
+      ],
+      rightSide: [
+        {
+          type: {
+            type: String,
+            enum: ["red", "yellow", "green", "blue", "purple"],
+          },
+          playerId: { type: mongoose.Schema.Types.ObjectId, ref: "Player" },
+        },
+      ],
+      isBalanced: { type: Boolean, default: false },
+    },
+    secondaryBalanceState: {
+      leftSide: [
+        {
+          type: {
+            type: String,
+            enum: ["red", "yellow", "green", "blue", "purple"],
+          },
+          playerId: { type: mongoose.Schema.Types.ObjectId, ref: "Player" },
+        },
+      ],
+      rightSide: [
+        {
+          type: {
+            type: String,
+            enum: ["red", "yellow", "green", "blue", "purple"],
+          },
+          playerId: { type: mongoose.Schema.Types.ObjectId, ref: "Player" },
+        },
+      ],
+      isBalanced: { type: Boolean, default: false }, // Añadido para consistencia
+    },
+    currentPlayerIndex: {
+      type: Number,
+      default: 0,
+    },
+    roundTimeSeconds: {
+      type: Number,
+      default: 300, // 5 minutes
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+module.exports = mongoose.model("Game", GameSchema);
+
+
+
+
+GameRoute:
+const express = require("express");
+const router = express.Router();
+const Game = require("../models/Game");
+const Player = require("../models/Player");
+const Movement = require("../models/Movement");
+const { broadcast } = require("../utils/websocket");
+
+// Middleware para cargar un juego por gameCode
+async function loadGame(req, res, next) {
+  try {
+    const game = await Game.findOne({ gameCode: req.params.id });
+    if (!game) return res.status(404).json({ message: "Juego no encontrado" });
+    req.game = game;
+    next();
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
+// Utilidad para generar pesos aleatorios de materiales
+function generateMaterialWeights() {
+  const colors = ["red", "yellow", "green", "blue", "purple"];
+  const weights = {};
+  colors.forEach((color) => {
+    weights[color] = Math.floor(Math.random() * 20) + 1;
+  });
+  return weights;
+}
+
+// Obtener todos los juegos
+router.get("/", async (req, res) => {
+  try {
+    const games = await Game.find().sort({ createdAt: -1 });
+    res.json(games);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Obtener un juego específico
+router.get("/:id", loadGame, (req, res) => {
+  res.json(req.game);
+});
+
+// Crear un nuevo juego
+router.post("/", async (req, res) => {
+  try {
+    const gameCode = "G" + Date.now().toString();
+    const materialWeights = generateMaterialWeights();
+
+    const newGame = new Game({
+      gameCode,
+      materialWeights,
+      mainBalanceState: { leftSide: [], rightSide: [], isBalanced: false },
+      secondaryBalanceState: { leftSide: [], rightSide: [], isBalanced: false },
+      state: "waiting", // Cambiado de status a state
+      currentPlayerIndex: 0,
+    });
+
+    const savedGame = await newGame.save();
+    broadcast(req.app.get("wss"), {
+      type: "GAME_CREATED",
+      gameCode,
+      gameState: savedGame,
+    });
+    res.status(201).json(savedGame);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// Iniciar un juego
+router.post("/:id/start", loadGame, async (req, res) => {
+  try {
+    const game = req.game;
+    if (game.state !== "waiting") {
+      return res.status(400).json({ message: "El juego ya ha comenzado o ha terminado" });
+    }
+    if (game.players.length < 2) {
+      return res.status(400).json({ message: "Se necesitan al menos 2 jugadores para iniciar" });
+    }
+
+    game.state = "playing";
+    game.startTime = new Date();
+    await game.save();
+
+    broadcast(req.app.get("wss"), {
+      type: "GAME_STARTED",
+      gameCode: game.gameCode,
+      gameState: game,
+    });
+
+    res.json({ message: "Juego iniciado" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Actualizar un juego
+router.patch("/:id", loadGame, async (req, res) => {
+  try {
+    const updatableFields = [
+      "state", // Cambiado de status a state
+      "endTime",
+      "winners",
+      "mainBalanceState",
+      "secondaryBalanceState",
+      "currentPlayerIndex",
+    ];
+
+    updatableFields.forEach((field) => {
+      if (req.body[field] !== undefined) {
+        req.game[field] = req.body[field];
+      }
+    });
+
+    const updatedGame = await req.game.save();
+    broadcast(req.app.get("wss"), {
+      type: "GAME_UPDATED",
+      gameCode: req.params.id,
+      gameState: updatedGame,
+    });
+    res.json(updatedGame);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+// Eliminar un juego y sus datos relacionados
+router.delete("/:id", loadGame, async (req, res) => {
+  try {
+    const gameCode = req.params.id;
+    await Game.deleteOne({ gameCode });
+    await Player.deleteMany({ gameId: req.game._id });
+    await Movement.deleteMany({ gameId: req.game._id });
+
+    broadcast(req.app.get("wss"), { type: "GAME_DELETED", gameCode });
+    res.json({ message: "Juego eliminado exitosamente" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Obtener estadísticas de un juego
+router.get("/:id/stats", loadGame, async (req, res) => {
+  try {
+    const players = await Player.find({ gameId: req.game._id });
+    const movements = await Movement.find({ gameId: req.game._id });
+
+    const stats = {
+      totalPlayers: players.length,
+      totalMoves: movements.length,
+      movesPerPlayer: {},
+      correctGuesses: 0,
+      incorrectGuesses: 0,
+      gameState: req.game.state, // Cambiado de gameStatus a gameState
+      startTime: req.game.startTime,
+      endTime: req.game.endTime,
+      duration: req.game.endTime
+        ? (new Date(req.game.endTime) - new Date(req.game.startTime)) / 1000
+        : null,
+      winners: players
+        .filter((p) => req.game.winners.includes(p._id))
+        .map((p) => p.name),
+    };
+
+    const moveCount = {};
+    for (const m of movements) {
+      const id = m.playerId.toString();
+      moveCount[id] = (moveCount[id] || 0) + 1;
+    }
+    for (const player of players) {
+      stats.movesPerPlayer[player.name] = moveCount[player._id.toString()] || 0;
+    }
+
+    const guessMovements = movements.filter(
+      (m) => m.actionType === "MAKE_GUESS"
+    );
+    stats.correctGuesses = guessMovements.filter(
+      (m) => m.data.guessResult === true
+    ).length;
+    stats.incorrectGuesses = guessMovements.filter(
+      (m) => m.data.guessResult === false
+    ).length;
+
+    res.json(stats);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Exportar el router como función que acepta wss
+module.exports = (wss) => {
+  router.wss = wss; // Guardar wss en el router
+  return router;
+};
+
+
+
+
+
+PlayerRoute:
+const express = require("express");
+const router = express.Router();
+const Player = require("../models/Player");
+const Game = require("../models/Game");
+const Movement = require("../models/Movement");
+const { broadcast } = require("../utils/websocket");
+
+/* Helper to handle errors */
+const handleError = (res, error, status = 500) =>
+  res.status(status).json({ message: error.message || error });
+
+/* Helper: Get game by gameCode */
+const getGameByCode = async (gameCode) => {
+  const game = await Game.findOne({ gameCode });
+  if (!game) throw new Error("Juego no encontrado");
+  return game;
+};
+
+/* GET: All players */
+router.get("/", async (_, res) => {
+  try {
+    const players = await Player.find();
+    res.json(players);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+/* GET: Players by Game ID */
+router.get("/game/:gameId", async (req, res) => {
+  try {
+    const players = await Player.find({ gameId: req.params.gameId });
+    res.json(players);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+/* GET: One player */
+router.get("/:id", async (req, res) => {
+  try {
+    const player = await Player.findById(req.params.id);
+    if (!player)
+      return res.status(404).json({ message: "Jugador no encontrado" });
+    res.json(player);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+/* POST: Create new player */
+router.post("/", async (req, res) => {
+  try {
+    const { gameCode, name } = req.body;
+    const game = await getGameByCode(gameCode);
+    if (!game) return res.status(404).json({ message: "Juego no encontrado" });
+
+    const existingPlayers = await Player.find({ gameId: game._id });
+    if (existingPlayers.length >= 10) {
+      return res.status(400).json({ message: "Máximo 10 jugadores permitidos" });
+    }
+
+    const groupId = Math.floor(existingPlayers.length / 2) + 1;
+
+    const usedOrders = existingPlayers.map((p) => p.turnOrder);
+    const availableOrders = Array.from({ length: 10 }, (_, i) => i + 1).filter(
+      (order) => !usedOrders.includes(order)
+    );
+    const turnOrder = availableOrders.sort(() => Math.random() - 0.5)[0];
+
+    const materialTypes = ["red", "yellow", "green", "blue", "purple"];
+    const materials = materialTypes.flatMap((type, index) => [
+      { type: type ?? 'red', id: `${game._id}-${type}-${index * 2}` },
+      { type: type ?? 'red', id: `${game._id}-${type}-${index * 2 + 1}` },
+    ]);
+
+    const clientInfo = {
+      ip: req.ip,
+      userAgent: req.get("User-Agent"),
+      lastConnection: new Date(),
+    };
+
+    const newPlayer = new Player({
+      gameId: game._id,
+      name: name || `Jugador ${existingPlayers.length + 1}`,
+      groupId,
+      turnOrder,
+      materials,
+      connectionData: clientInfo,
+      isReady: false,
+    });
+
+    const savedPlayer = await newPlayer.save();
+
+    // Si es el primer jugador, establecerlo como el creador
+    if (existingPlayers.length === 0) {
+      game.creatorId = savedPlayer._id;
+      game.players.push(savedPlayer._id);
+      await game.save();
+    } else {
+      game.players.push(savedPlayer._id);
+      await game.save();
+    }
+
+    const movement = new Movement({
+      gameId: game._id,
+      playerId: savedPlayer._id,
+      actionType: "JOIN_GAME",
+      clientInfo,
+    });
+    await movement.save();
+
+    broadcast(router.wss, {
+      type: "PLAYER_JOINED",
+      gameCode,
+      playerId: savedPlayer._id.toString(),
+      player: savedPlayer,
+    });
+    res.status(201).json(savedPlayer);
+  } catch (err) {
+    handleError(res, err, 400);
+  }
+});
+
+/* PATCH: Update player */
+router.patch("/:id", async (req, res) => {
+  try {
+    const player = await Player.findById(req.params.id);
+    if (!player)
+      return res.status(404).json({ message: "Jugador no encontrado" });
+
+    const fields = [
+      "name",
+      "pieces",
+      "materials",
+      "hasGuessed",
+      "isEliminated",
+      "guesses",
+      "connectionData",
+      "isReady",
+    ];
+    fields.forEach((field) => {
+      if (req.body[field] !== undefined) {
+        player[field] = req.body[field];
+      }
+    });
+
+    if (req.body.connectionData) {
+      player.connectionData.lastConnection = new Date();
+    }
+
+    const updatedPlayer = await player.save();
+    const game = await Game.findById(player.gameId);
+    broadcast(req.app.get("wss"), {
+      type: "PLAYER_UPDATED",
+      gameCode: game.gameCode,
+      playerId: updatedPlayer._id.toString(),
+      player: updatedPlayer,
+    });
+    res.json(updatedPlayer);
+  } catch (err) {
+    handleError(res, err, 400);
+  }
+});
+
+/* POST: Place material */
+router.post("/:id/place-material", async (req, res) => {
+  try {
+    const { materialId, balanceType, side } = req.body;
+    const player = await Player.findById(req.params.id);
+    if (!player)
+      return res.status(404).json({ message: "Jugador no encontrado" });
+
+    const game = await Game.findById(player.gameId);
+    if (!game) return res.status(404).json({ message: "Juego no encontrado" });
+
+    const index = player.materials.findIndex((m) => m.id === materialId);
+    if (index === -1)
+      return res.status(404).json({ message: "Material no encontrado" });
+
+    const material = player.materials.splice(index, 1)[0];
+    const sideData = { type: material.type, playerId: player._id.toString() };
+
+    const balance =
+      balanceType === "main"
+        ? game.mainBalanceState
+        : game.secondaryBalanceState;
+    side === "left"
+      ? balance.leftSide.push(sideData)
+      : balance.rightSide.push(sideData);
+
+    if (balanceType === "main" || balanceType === "secondary") {
+      const calcWeight = (side) =>
+        side.reduce((sum, m) => sum + game.materialWeights[m.type], 0);
+      balance.isBalanced =
+        calcWeight(balance.leftSide) === calcWeight(balance.rightSide);
+    }
+
+    await Promise.all([player.save(), game.save()]);
+
+    const movement = new Movement({
+      gameId: player.gameId,
+      playerId: player._id,
+      actionType: "PLACE_MATERIAL",
+      data: { material, balanceType, side },
+      clientInfo: { ip: req.ip, userAgent: req.get("User-Agent") },
+    });
+    await movement.save();
+
+    broadcast(req.app.get("wss"), {
+      type: "MATERIAL_PLACED",
+      gameCode: game.gameCode,
+      playerId: player._id.toString(),
+      balanceType,
+      side,
+      material,
+      isBalanced: balance.isBalanced,
+    });
+
+    res.json({
+      message: "Material colocado",
+      material,
+      balanceType,
+      side,
+      isBalanced: balance.isBalanced,
+    });
+  } catch (err) {
+    handleError(res, err, 400);
+  }
+});
+
+/* POST: Make a guess */
+router.post("/:id/guess", async (req, res) => {
+  try {
+    const player = await Player.findById(req.params.id);
+    if (!player)
+      return res.status(404).json({ message: "Jugador no encontrado" });
+
+    const game = await Game.findById(player.gameId);
+    if (!game) return res.status(404).json({ message: "Juego no encontrado" });
+
+    if (!game.mainBalanceState.isBalanced) {
+      return res
+        .status(400)
+        .json({ message: "La balanza principal no está equilibrada" });
+    }
+
+    if (player.pieces <= 0) {
+      return res.status(400).json({ message: "No hay piezas disponibles" });
+    }
+
+    if (player.hasGuessed) {
+      return res.status(400).json({ message: "El jugador ya ha hecho una adivinanza" });
+    }
+
+    const { guesses } = req.body;
+    if (!Array.isArray(guesses)) {
+      return res
+        .status(400)
+        .json({ message: "Formato de adivinanza inválido" });
+    }
+
+    const validatedGuesses = guesses.map(({ type, weight }) => {
+      if (!["red", "yellow", "green", "blue", "purple"].includes(type)) {
+        throw new Error(`Tipo de material inválido: ${type}`);
+      }
+      if (typeof weight !== "number" || weight < 1 || weight > 20) {
+        throw new Error(`Peso inválido para ${type}: ${weight}`);
+      }
+      const isCorrect = game.materialWeights[type] === weight;
+      return { type, weight, isCorrect, time: new Date() };
+    });
+
+    let allCorrect = validatedGuesses.every((guess) => guess.isCorrect);
+
+    player.pieces -= 1;
+    player.guesses.push(...validatedGuesses);
+    player.hasGuessed = true;
+
+    if (allCorrect) {
+      player.pieces += 2;
+      if (!game.winners.includes(player._id)) {
+        game.winners.push(player._id);
+        game.state = "finished"; // Cambiado de status a state
+        game.endTime = new Date();
+        await game.save();
+      }
+    }
+
+    await player.save();
+
+    const movement = new Movement({
+      gameId: player.gameId,
+      playerId: player._id,
+      actionType: "MAKE_GUESS",
+      data: {
+        guesses: validatedGuesses,
+        guessResult: allCorrect,
+      },
+      clientInfo: { ip: req.ip, userAgent: req.get("User-Agent") },
+    });
+    await movement.save();
+
+    broadcast(req.app.get("wss"), {
+      type: "GUESS_MADE",
+      gameCode: game.gameCode,
+      playerId: player._id.toString(),
+      guesses: validatedGuesses,
+      guessResult: allCorrect,
+      newPiecesTotal: player.pieces,
+      gameState: game,
+    });
+
+    res.json({
+      message: allCorrect
+        ? "¡Todas las adivinanzas correctas!"
+        : "Algunas fueron incorrectas",
+      guessResult: allCorrect,
+      guesses: validatedGuesses,
+      newPiecesTotal: player.pieces,
+      gameState: game,
+    });
+  } catch (err) {
+    handleError(res, err, 400);
+  }
+});
+
+// Exportar el router como función que acepta wss
+module.exports = (wss) => {
+  router.wss = wss; // Guardar wss en el router
+  return router;
+};
+
+
+
+
+
+WebSocket:
+const Game = require("../models/Game");
+const Player = require("../models/Player");
+const Movement = require("../models/Movement");
+
+const connectedPlayers = new Map();
+
+function broadcast(wss, data) {
+  const message = JSON.stringify(data);
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  });
+}
+
+function sendToPlayer(playerId, data) {
+  const ws = connectedPlayers.get(playerId);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(data));
+    return true;
+  }
+  return false;
+}
+
+function setupWebSocket(wss) {
+  wss.on("connection", (ws, req) => {
+    const playerId = `P${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    connectedPlayers.set(playerId, ws);
+    console.log(
+      `Nuevo jugador conectado: ${playerId} desde ${req.socket.remoteAddress}`
+    );
+
+    // Enviar ID al jugador
+    ws.send(JSON.stringify({ type: "PLAYER_CONNECTED", playerId }));
+
+    ws.on("message", async (message) => {
+      try {
+        const data = JSON.parse(message.toString());
+        console.log(
+          `Mensaje recibido de ${data.playerId || playerId}: ${data.type}`
+        );
+
+        switch (data.type) {
+          case "JOIN_GAME":
+            // Este evento ya se maneja en playerRoutes.js, pero podemos loguearlo
+            console.log(`Jugador ${data.playerId} se unió al juego ${data.gameCode}`);
+            break;
+
+          case "START_GAME":
+            // Este evento ahora se maneja en gameRoutes.js, pero podemos loguearlo
+            console.log(`Juego ${data.gameCode} iniciado por ${data.playerId}`);
+            break;
+
+          case "GAME_ACTION":
+            const { gameCode: actionGameCode, actionType, actionData } = data;
+            const actionGame = await Game.findOne({ gameCode: actionGameCode });
+            if (!actionGame || actionGame.state !== "playing") return;
+
+            const movement = new Movement({
+              gameId: actionGame._id,
+              playerId: data.playerId || playerId,
+              actionType,
+              data: actionData,
+            });
+            await movement.save();
+
+            // Actualizar estado del juego según la acción
+            if (actionType === "PLACE_MATERIAL") {
+              const { balanceType, side, material } = actionData;
+              const balance =
+                balanceType === "main"
+                  ? actionGame.mainBalanceState
+                  : actionGame.secondaryBalanceState;
+              const targetSide =
+                side === "left" ? balance.leftSide : balance.rightSide;
+              targetSide.push({ type: material.type, playerId });
+
+              const calcWeight = (side) =>
+                side.reduce(
+                  (sum, m) => sum + actionGame.materialWeights[m.type],
+                  0
+                );
+              balance.isBalanced =
+                calcWeight(balance.leftSide) === calcWeight(balance.rightSide);
+
+              await actionGame.save();
+            }
+
+            broadcast(wss, {
+              type: "GAME_UPDATE",
+              gameCode: actionGameCode,
+              gameState: actionGame,
+            });
+            break;
+        }
+      } catch (error) {
+        console.error("Error procesando mensaje WebSocket:", error);
+      }
+    });
+
+    ws.on("close", async () => {
+      connectedPlayers.delete(playerId);
+      console.log(`Jugador ${playerId} desconectado`);
+
+      const player = await Player.findOne({ playerId });
+      if (player) {
+        const game = await Game.findOne({ players: player._id });
+        if (game) {
+          broadcast(wss, {
+            type: "PLAYER_LEFT",
+            gameCode: game.gameCode,
+            playerId,
+          });
+        }
+      }
+    });
+  });
+}
+
+module.exports = { setupWebSocket, broadcast };
+
+
+
+
+
+
+
+Server.js
+
+require("dotenv").config();
+const express = require("express");
+const mongoose = require("mongoose");
+const cors = require("cors");
+const bodyParser = require("body-parser");
+const http = require("http");
+const WebSocket = require("ws");
+const gameRoutes = require("./routes/gameRoutes");
+const movementRoutes = require("./routes/movementRoutes");
+const playerRoutes = require("./routes/playerRoutes");
+const { setupWebSocket } = require("./utils/websocket");
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server, path: "/ws" });
+
+// Guardar wss en app
+app.set("wss", wss);
+
+// Middleware
+app.use(cors());
+app.use(bodyParser.json());
+
+// Rutas de la API
+app.use("/api/games", gameRoutes(wss));
+app.use("/api/movements", movementRoutes(wss));
+app.use("/api/players", playerRoutes(wss));
+
+// Ruta de salud
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", connections: wss.clients.size });
+});
+
+// Conectar a MongoDB y arrancar el servidor
+const startServer = async () => {
+  try {
+    const MONGODB_URI =
+      process.env.MONGODB_URI || "mongodb://localhost:27017/juegoEscala";
+    await mongoose.connect(MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+    console.log("Conectado a MongoDB");
+
+    // Configurar WebSocket
+    setupWebSocket(wss);
+
+    // Iniciar servidor
+    server.listen(PORT, "0.0.0.0", () => {
+      const serverIp =
+        require("os")
+          .networkInterfaces()
+          ["Ethernet"]?.find((i) => i.family === "IPv4")?.address ||
+        "localhost";
+      console.log(`=================================================`);
+      console.log(`Servidor corriendo en el puerto ${PORT}`);
+      console.log(`WebSocket disponible en: ws://${serverIp}:${PORT}/ws`);
+      console.log(`API disponible en: http://${serverIp}:${PORT}/api`);
+      console.log(`IP del servidor: ${serverIp}`);
+      console.log(`=================================================`);
+    });
+  } catch (err) {
+    console.error("Error al conectar a MongoDB:", err);
+    process.exit(1);
+  }
+};
+
+startServer();
