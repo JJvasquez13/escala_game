@@ -17,6 +17,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final StorageService storageService = StorageService();
   List<String> gameHistory = [];
   bool showHistory = false;
+  int? selectedTeam; // Variable para el equipo seleccionado
 
   @override
   void initState() {
@@ -104,10 +105,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   gameProvider.playerName != null
                       ? 'Bienvenido, ${gameProvider.playerName}!'
                       : '¡Juega y descubre los pesos!',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    color: Colors.white70,
-                  ),
+                  style: const TextStyle(fontSize: 20, color: Colors.white70),
                 ),
                 const SizedBox(height: 48),
                 _buildMenuButton(
@@ -147,73 +145,105 @@ class _HomeScreenState extends State<HomeScreen> {
                     showDialog(
                       context: context,
                       builder: (context) {
-                        return AlertDialog(
-                          title: const Text('Unirse a un Juego'),
-                          content: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              TextField(
-                                controller: gameCodeController,
-                                decoration: const InputDecoration(
-                                    labelText: 'Código del Juego'),
+                        return StatefulBuilder(
+                          builder: (context, setState) {
+                            return AlertDialog(
+                              title: const Text('Unirse a un Juego'),
+                              content: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  TextField(
+                                    controller: gameCodeController,
+                                    decoration: const InputDecoration(
+                                        labelText: 'Código del Juego'),
+                                  ),
+                                  if (gameProvider.playerName == null)
+                                    TextField(
+                                      controller: playerNameController,
+                                      decoration: const InputDecoration(
+                                          labelText: 'Tu Nombre (Opcional)'),
+                                    ),
+                                  DropdownButton<int>(
+                                    hint: const Text('Selecciona un equipo'),
+                                    value: selectedTeam,
+                                    items: [1, 2, 3, 4, 5].map((team) {
+                                      return DropdownMenuItem<int>(
+                                        value: team,
+                                        child: Text('Equipo $team'),
+                                      );
+                                    }).toList(),
+                                    onChanged: (value) {
+                                      setState(() {
+                                        selectedTeam = value;
+                                      });
+                                    },
+                                  ),
+                                ],
                               ),
-                              if (gameProvider.playerName == null)
-                                TextField(
-                                  controller: playerNameController,
-                                  decoration: const InputDecoration(
-                                      labelText: 'Tu Nombre (Opcional)'),
-                                ),
-                            ],
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () {
-                                Navigator.pop(context);
-                              },
-                              child: const Text('Cancelar'),
-                            ),
-                            TextButton(
-                              onPressed: () async {
-                                final gameCode = gameCodeController.text.trim();
-                                final playerName = gameProvider.playerName ??
-                                    (playerNameController.text
-                                        .trim()
-                                        .isNotEmpty
-                                        ? playerNameController.text.trim()
-                                        : 'Jugador Temporal');
-                                if (gameCode.isNotEmpty) {
-                                  if (gameProvider.playerName == null &&
-                                      playerName != 'Jugador Temporal') {
-                                    await gameProvider.savePlayerName(
-                                        playerName);
-                                  }
-                                  try {
-                                    await gameProvider.joinGame(
-                                        gameCode, playerName);
+                              actions: [
+                                TextButton(
+                                  onPressed: () {
                                     Navigator.pop(context);
-                                    if (gameProvider.currentGame != null) {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              LobbyScreen(
-                                                gameCode: gameProvider
-                                                    .currentGame!.gameCode,
-                                              ),
-                                        ),
+                                  },
+                                  child: const Text('Cancelar'),
+                                ),
+                                TextButton(
+                                  onPressed: () async {
+                                    final gameCode = gameCodeController.text
+                                        .trim();
+                                    final playerName = gameProvider
+                                        .playerName ??
+                                        (playerNameController.text
+                                            .trim()
+                                            .isNotEmpty
+                                            ? playerNameController.text.trim()
+                                            : 'Jugador Temporal');
+                                    if (gameCode.isNotEmpty &&
+                                        selectedTeam != null) {
+                                      if (gameProvider.playerName == null &&
+                                          playerName != 'Jugador Temporal') {
+                                        await gameProvider.savePlayerName(
+                                            playerName);
+                                      }
+                                      try {
+                                        await gameProvider.joinGame(gameCode,
+                                            playerName, selectedTeam!);
+                                        Navigator.pop(context);
+                                        if (gameProvider.currentGame != null) {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  LobbyScreen(
+                                                    gameCode: gameProvider
+                                                        .currentGame!.gameCode,
+                                                  ),
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        ScaffoldMessenger
+                                            .of(context)
+                                            .showSnackBar(
+                                          SnackBar(content: Text(
+                                              'Error al unirse al juego: $e')),
+                                        );
+                                      }
+                                    } else {
+                                      ScaffoldMessenger
+                                          .of(context)
+                                          .showSnackBar(
+                                        const SnackBar(
+                                            content: Text(
+                                                'Por favor, ingresa el código y selecciona un equipo')),
                                       );
                                     }
-                                  } catch (e) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text(
-                                          'Error al unirse al juego: $e')),
-                                    );
-                                  }
-                                }
-                              },
-                              child: const Text('Unirse'),
-                            ),
-                          ],
+                                  },
+                                  child: const Text('Unirse'),
+                                ),
+                              ],
+                            );
+                          },
                         );
                       },
                     );
@@ -241,9 +271,7 @@ class _HomeScreenState extends State<HomeScreen> {
         foregroundColor: Colors.blue.shade900,
         padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
         textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         elevation: 5,
       ),
       child: Text(label),
@@ -270,10 +298,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              Icon(
-                showHistory ? Icons.expand_less : Icons.expand_more,
-                color: Colors.white,
-              ),
+              Icon(showHistory ? Icons.expand_less : Icons.expand_more,
+                  color: Colors.white),
             ],
           ),
         ),
@@ -286,19 +312,15 @@ class _HomeScreenState extends State<HomeScreen> {
               borderRadius: BorderRadius.circular(12),
             ),
             child: gameHistory.isEmpty
-                ? const Text(
-              'No hay partidas jugadas',
-              style: TextStyle(color: Colors.white70),
-            )
+                ? const Text('No hay partidas jugadas',
+                style: TextStyle(color: Colors.white70))
                 : Column(
               children: [
                 ...gameHistory.map((entry) =>
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4.0),
                       child: Text(
-                        entry,
-                        style: const TextStyle(color: Colors.white),
-                      ),
+                          entry, style: const TextStyle(color: Colors.white)),
                     )),
                 const SizedBox(height: 8),
                 TextButton(
@@ -308,10 +330,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       gameHistory = [];
                     });
                   },
-                  child: const Text(
-                    'Limpiar Historial',
-                    style: TextStyle(color: Colors.redAccent),
-                  ),
+                  child: const Text('Limpiar Historial',
+                      style: TextStyle(color: Colors.redAccent)),
                 ),
               ],
             ),

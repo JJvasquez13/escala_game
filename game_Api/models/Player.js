@@ -14,6 +14,8 @@ const PlayerSchema = new mongoose.Schema(
     groupId: {
       type: Number,
       required: true,
+      min: 1,
+      max: 5, // Limitamos a equipos del 1 al 5
     },
     turnOrder: {
       type: Number,
@@ -29,7 +31,7 @@ const PlayerSchema = new mongoose.Schema(
           type: String,
           enum: ["red", "yellow", "green", "blue", "purple"],
         },
-        id: String, // si usas un ID visual o interno, si no, puedes quitarlo
+        id: String,
       },
     ],
     hasGuessed: {

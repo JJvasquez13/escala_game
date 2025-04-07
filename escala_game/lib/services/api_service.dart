@@ -35,12 +35,13 @@ class ApiService {
     }
   }
 
-  Future<Player> createPlayer(String gameCode, String name) async {
+  Future<Player> createPlayer(String gameCode, String name, int groupId) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/players/'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'gameCode': gameCode, 'name': name}),
+        body: jsonEncode(
+            {'gameCode': gameCode, 'name': name, 'groupId': groupId}),
       );
       if (response.statusCode == 201) {
         return Player.fromJson(jsonDecode(response.body));

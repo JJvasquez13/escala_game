@@ -78,11 +78,11 @@ class GameProvider with ChangeNotifier {
         throw Exception('Por favor, ingresa un nombre antes de crear un juego');
       }
       currentGame = await apiService.createGame();
-      await joinGame(currentGame!.gameCode, playerName!);
+      await joinGame(currentGame!.gameCode, playerName!,
+          1); // Asignamos equipo 1 al creador
       creatorId = currentPlayer!.id;
       creatorName = currentPlayer!.name;
-      _usedMaterials
-          .clear(); // Limpiar materiales usados al crear un nuevo juego
+      _usedMaterials.clear();
       notifyListeners();
     } catch (e) {
       print('Error al crear el juego: $e');
@@ -90,17 +90,18 @@ class GameProvider with ChangeNotifier {
     }
   }
 
-  Future<void> joinGame(String gameCode, String playerName) async {
+  Future<void> joinGame(String gameCode, String playerName, int groupId) async {
     try {
       currentGame = await apiService.getGame(gameCode);
-      currentPlayer = await apiService.createPlayer(gameCode, playerName);
+      currentPlayer =
+      await apiService.createPlayer(gameCode, playerName, groupId);
       webSocketService.sendMessage({
         'type': 'JOIN_GAME',
         'gameCode': gameCode,
         'playerId': currentPlayer!.id,
       });
       await fetchPlayers();
-      _usedMaterials.clear(); // Limpiar materiales usados al unirse a un juego
+      _usedMaterials.clear();
       notifyListeners();
     } catch (e) {
       print('Error al unirse al juego: $e');
