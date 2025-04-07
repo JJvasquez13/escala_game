@@ -16,6 +16,9 @@ class GameProvider with ChangeNotifier {
   String? playerName;
   String? creatorId;
   String? creatorName;
+  String? _selectedMaterial;
+  final List<String> _usedMaterials = [
+  ]; // Añadido para rastrear materiales usados
 
   GameProvider() {
     _loadPlayerName();
@@ -78,6 +81,8 @@ class GameProvider with ChangeNotifier {
       await joinGame(currentGame!.gameCode, playerName!);
       creatorId = currentPlayer!.id;
       creatorName = currentPlayer!.name;
+      _usedMaterials
+          .clear(); // Limpiar materiales usados al crear un nuevo juego
       notifyListeners();
     } catch (e) {
       print('Error al crear el juego: $e');
@@ -95,6 +100,7 @@ class GameProvider with ChangeNotifier {
         'playerId': currentPlayer!.id,
       });
       await fetchPlayers();
+      _usedMaterials.clear(); // Limpiar materiales usados al unirse a un juego
       notifyListeners();
     } catch (e) {
       print('Error al unirse al juego: $e');
@@ -131,6 +137,8 @@ class GameProvider with ChangeNotifier {
     try {
       await apiService.placeMaterial(
           currentPlayer!.id, materialId, balanceType, side);
+      _usedMaterials.add(materialId); // Añadir el material a la lista de usados
+      notifyListeners();
     } catch (e) {
       print('Error al colocar material: $e');
       rethrow;
@@ -164,4 +172,20 @@ class GameProvider with ChangeNotifier {
     return currentPlayer != null && creatorId != null &&
         currentPlayer!.id == creatorId;
   }
+
+  // Métodos para manejar la selección de materiales
+  String? get selectedMaterial => _selectedMaterial;
+
+  void selectMaterial(String materialId) {
+    _selectedMaterial = materialId;
+    notifyListeners();
+  }
+
+  void clearSelectedMaterial() {
+    _selectedMaterial = null;
+    notifyListeners();
+  }
+
+  // Getter para los materiales usados
+  List<String> get usedMaterials => _usedMaterials;
 }

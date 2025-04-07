@@ -45,7 +45,7 @@ router.get("/:id", loadGame, (req, res) => {
 // Crear un nuevo juego
 router.post("/", async (req, res) => {
   try {
-    const gameCode = "G" + Date.now().toString();
+    const gameCode = "G" + Math.floor(100000 + Math.random() * 900000).toString();
     const materialWeights = generateMaterialWeights();
 
     const newGame = new Game({
