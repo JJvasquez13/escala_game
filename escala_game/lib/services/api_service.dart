@@ -1,10 +1,22 @@
-import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io' show Platform;
 import 'package:http/http.dart' as http;
+import 'dart:convert';
 import '../models/game.dart';
 import '../models/player.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://10.0.2.2:5000/api'; // Para emulador Android
+  static String get baseUrl {
+    if (kIsWeb) {
+      return 'http://localhost:5000/api'; // Flutter Web (navegador)
+    } else if (Platform.environment.containsKey('ANDROID_EMULATOR')) {
+      return 'http://10.0.2.2:5000/api'; // Emulador Android
+    } else if (Platform.isAndroid || Platform.isIOS) {
+      return 'http://10.0.2.2:5000/api'; // Dispositivos móviles
+    } else {
+      return 'http://localhost:5000/api'; // Otros entornos locales
+    }
+  }
 
   Future<Game> createGame() async {
     try {

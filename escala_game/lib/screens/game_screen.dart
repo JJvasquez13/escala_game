@@ -3,8 +3,8 @@ import 'package:provider/provider.dart';
 import '../providers/game_provider.dart';
 import '../models/game.dart';
 import '../models/player.dart';
-import '../widgets/balance_widget.dart';
-import '../widgets/material_list_widget.dart';
+import '../widgets/game/balance/balance_widget.dart';
+import '../widgets/game/material_list_widget.dart';
 
 class GameScreen extends StatelessWidget {
   const GameScreen({Key? key}) : super(key: key);

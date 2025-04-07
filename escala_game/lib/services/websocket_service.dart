@@ -1,8 +1,21 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io' show Platform;
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 class WebSocketService {
-  final String url = 'ws://10.0.2.2:5000/ws'; // Cambia si usas IP
+  String get url {
+    if (kIsWeb) {
+      return 'ws://localhost:5000/ws'; // Flutter Web (navegador)
+    } else if (Platform.environment.containsKey('ANDROID_EMULATOR')) {
+      return 'ws://10.0.2.2:5000/ws'; // Emulador Android
+    } else if (Platform.isAndroid || Platform.isIOS) {
+      return 'ws://10.0.2.2:5000/ws'; // Dispositivos móviles
+    } else {
+      return 'ws://localhost:5000/ws'; // Otros entornos locales
+    }
+  }
+
   WebSocketChannel? channel;
   Function(Map<String, dynamic>)? onMessage;
 

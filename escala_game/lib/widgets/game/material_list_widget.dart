@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/game_provider.dart';
-import '../models/player.dart';
+import '../../providers/game_provider.dart';
+import '../../models/player.dart';
 import 'material_cube_widget.dart';
 
 class MaterialListWidget extends StatelessWidget {

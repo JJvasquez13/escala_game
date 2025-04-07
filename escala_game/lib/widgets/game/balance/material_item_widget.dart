@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../models/game.dart';
-import '../utils/styles.dart';
+import '../../../models/game.dart';
+import '../../../utils/styles.dart';
 
 class MaterialItemWidget extends StatelessWidget {
   final MaterialItem item;

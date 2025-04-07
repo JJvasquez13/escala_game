@@ -16,3 +16,23 @@ BoxShadow defaultShadow(
     offset: offset,
   );
 }
+
+TextStyle titleStyle = const TextStyle(
+  fontSize: 48,
+  fontWeight: FontWeight.bold,
+  color: Colors.white,
+  shadows: [
+    Shadow(blurRadius: 10.0, color: Colors.black45, offset: Offset(2.0, 2.0)),
+  ],
+);
+
+TextStyle subtitleStyle = const TextStyle(fontSize: 20, color: Colors.white70);
+
+ButtonStyle menuButtonStyle = ElevatedButton.styleFrom(
+  backgroundColor: Colors.white,
+  foregroundColor: Colors.blue.shade900,
+  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+  textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  elevation: 5,
+);

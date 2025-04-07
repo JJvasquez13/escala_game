@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/game_provider.dart';
-import '../models/game.dart';
-import '../models/player.dart';
-import 'triangle_painter.dart';
+import '../../../providers/game_provider.dart';
+import '../../../models/game.dart';
+import '../../../models/player.dart';
 import 'balance_pan_widget.dart';
-import '../utils/styles.dart';
+import 'triangle_painter.dart';
+import '../../../utils/styles.dart';
 
 class BalanceWidget extends StatefulWidget {
   final bool isMain;

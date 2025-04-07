@@ -1,9 +1,9 @@
-import 'package:flutter/foundation.dart'; // Para ChangeNotifier
-import '../services/api_service.dart'; // Para ApiService
-import '../services/websocket_service.dart'; // Para WebSocketService
-import '../services/storage_service.dart'; // Para StorageService
-import '../models/game.dart'; // Para Game
-import '../models/player.dart'; // Para Player
+import 'package:flutter/foundation.dart';
+import '../services/api_service.dart';
+import '../services/websocket_service.dart';
+import '../services/storage_service.dart';
+import '../models/game.dart';
+import '../models/player.dart';
 
 class GameProvider with ChangeNotifier {
   final ApiService apiService = ApiService();
@@ -17,8 +17,7 @@ class GameProvider with ChangeNotifier {
   String? creatorId;
   String? creatorName;
   String? _selectedMaterial;
-  final List<String> _usedMaterials = [
-  ]; // Añadido para rastrear materiales usados
+  final List<String> _usedMaterials = [];
 
   GameProvider() {
     _loadPlayerName();
@@ -58,6 +57,7 @@ class GameProvider with ChangeNotifier {
             storageService.saveGameToHistory(
               currentGame!.gameCode,
               'Ganaste',
+              currentPlayer!.groupId,
             );
           }
           notifyListeners();
@@ -66,6 +66,19 @@ class GameProvider with ChangeNotifier {
           currentGame = Game.fromJson(message['gameState']);
           creatorId = message['creatorId'] ?? creatorId;
           creatorName = message['creatorName'] ?? creatorName;
+          notifyListeners();
+          break;
+        case 'PLAYER_LEFT':
+          fetchPlayers(); // Actualizar lista de jugadores si alguien sale
+          notifyListeners();
+          break;
+        case 'GAME_ENDED':
+          currentGame = Game.fromJson(message['gameState']);
+          storageService.saveGameToHistory(
+            currentGame!.gameCode,
+            'Terminado',
+            currentPlayer!.groupId,
+          );
           notifyListeners();
           break;
       }
@@ -78,8 +91,7 @@ class GameProvider with ChangeNotifier {
         throw Exception('Por favor, ingresa un nombre antes de crear un juego');
       }
       currentGame = await apiService.createGame();
-      await joinGame(currentGame!.gameCode, playerName!,
-          1); // Asignamos equipo 1 al creador
+      await joinGame(currentGame!.gameCode, playerName!, 1);
       creatorId = currentPlayer!.id;
       creatorName = currentPlayer!.name;
       _usedMaterials.clear();
@@ -92,6 +104,12 @@ class GameProvider with ChangeNotifier {
 
   Future<void> joinGame(String gameCode, String playerName, int groupId) async {
     try {
+      if (currentGame != null && currentGame!.gameCode != gameCode) {
+        currentGame = null;
+        currentPlayer = null;
+        players.clear();
+        _usedMaterials.clear();
+      }
       currentGame = await apiService.getGame(gameCode);
       currentPlayer =
       await apiService.createPlayer(gameCode, playerName, groupId);
@@ -100,10 +118,13 @@ class GameProvider with ChangeNotifier {
         'gameCode': gameCode,
         'playerId': currentPlayer!.id,
       });
+      // Guardamos como "En curso" en lugar de "Exitoso"
+      await storageService.saveGameToHistory(gameCode, 'En curso', groupId);
       await fetchPlayers();
       _usedMaterials.clear();
       notifyListeners();
     } catch (e) {
+      await storageService.saveGameToHistory(gameCode, 'Fallido', groupId);
       print('Error al unirse al juego: $e');
       rethrow;
     }
@@ -138,7 +159,7 @@ class GameProvider with ChangeNotifier {
     try {
       await apiService.placeMaterial(
           currentPlayer!.id, materialId, balanceType, side);
-      _usedMaterials.add(materialId); // Añadir el material a la lista de usados
+      _usedMaterials.add(materialId);
       notifyListeners();
     } catch (e) {
       print('Error al colocar material: $e');
@@ -174,7 +195,6 @@ class GameProvider with ChangeNotifier {
         currentPlayer!.id == creatorId;
   }
 
-  // Métodos para manejar la selección de materiales
   String? get selectedMaterial => _selectedMaterial;
 
   void selectMaterial(String materialId) {
@@ -187,6 +207,26 @@ class GameProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // Getter para los materiales usados
   List<String> get usedMaterials => _usedMaterials;
+
+  // Metodo para salir del juego (opcional, si el líder se va)
+  Future<void> leaveGame() async {
+    try {
+      if (currentGame != null && currentPlayer != null) {
+        webSocketService.sendMessage({
+          'type': 'LEAVE_GAME',
+          'gameCode': currentGame!.gameCode,
+          'playerId': currentPlayer!.id,
+        });
+        currentGame = null;
+        currentPlayer = null;
+        players.clear();
+        _usedMaterials.clear();
+        notifyListeners();
+      }
+    } catch (e) {
+      print('Error al salir del juego: $e');
+      rethrow;
+    }
+  }
 }

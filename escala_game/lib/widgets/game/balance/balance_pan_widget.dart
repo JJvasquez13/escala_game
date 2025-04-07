@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import '../models/game.dart';
+import '../../../models/game.dart';
 import 'material_item_widget.dart';
-import '../utils/styles.dart';
+import '../../../utils/styles.dart';
 
 class BalancePanWidget extends StatelessWidget {
   final bool isLeft;

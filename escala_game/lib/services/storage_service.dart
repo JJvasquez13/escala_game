@@ -14,11 +14,15 @@ class StorageService {
     return prefs.getString(_playerNameKey);
   }
 
-  Future<void> saveGameToHistory(String gameCode, String result) async {
+  Future<void> saveGameToHistory(String gameCode, String result,
+      int team) async {
     final prefs = await SharedPreferences.getInstance();
     List<String> history = prefs.getStringList(_gameHistoryKey) ?? [];
-    history.add('$gameCode - $result');
-    await prefs.setStringList(_gameHistoryKey, history);
+    final entry = '$gameCode - $result - $team'; // Nuevo formato: "ABC123 - Exitoso - 2"
+    if (!history.contains(entry)) { // Evitar duplicados
+      history.add(entry);
+      await prefs.setStringList(_gameHistoryKey, history);
+    }
   }
 
   Future<List<String>> getGameHistory() async {
