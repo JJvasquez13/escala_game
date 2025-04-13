@@ -18,7 +18,7 @@ function generateMaterialWeights() {
   const colors = ["red", "yellow", "green", "blue", "purple"];
   const weights = {};
   colors.forEach((color) => {
-    weights[color] = Math.floor(Math.random() * 20) + 1;
+    weights[color] = (Math.floor(Math.random() * 10) + 1) * 2;
   });
   return weights;
 }

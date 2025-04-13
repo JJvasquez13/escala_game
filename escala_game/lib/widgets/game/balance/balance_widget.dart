@@ -76,7 +76,8 @@ class _BalanceWidgetState extends State<BalanceWidget>
     double targetRightOffset = 0.0;
 
     if (leftWeight != rightWeight) {
-      double tiltFactor = (leftWeight - rightWeight) /
+      // Invertimos el tiltFactor para que el lado más pesado baje
+      double tiltFactor = (rightWeight - leftWeight) /
           (leftWeight + rightWeight).clamp(1, double.infinity);
       targetTilt = maxTilt * tiltFactor;
 
@@ -84,9 +85,11 @@ class _BalanceWidgetState extends State<BalanceWidget>
           (leftWeight + rightWeight).clamp(1, double.infinity);
       double offset = maxOffset * offsetFactor;
       if (leftWeight > rightWeight) {
+        // Lado izquierdo más pesado: baja (offset positivo), derecho sube (offset negativo)
         targetLeftOffset = offset;
         targetRightOffset = -offset;
       } else {
+        // Lado derecho más pesado: baja (offset positivo), izquierdo sube (offset negativo)
         targetLeftOffset = -offset;
         targetRightOffset = offset;
       }
