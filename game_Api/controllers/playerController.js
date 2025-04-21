@@ -1,13 +1,13 @@
 const Player = require("../models/Player");
 const Game = require("../models/Game");
 const Movement = require("../models/Movement");
-const { broadcast } = require("../utils/websocket");
+const { broadcastToGame } = require("../utils/websocket");
 
 const handleError = (res, error, status = 500) =>
   res.status(status).json({ message: error.message || error });
 
 async function getGameByCode(gameCode) {
-  const game = await Game.findOne({ gameCode });
+  const game = await Game.findOne({ gameCode }).populate("players");
   if (!game) throw new Error("Juego no encontrado");
   return game;
 }
@@ -44,18 +44,16 @@ async function createPlayer(req, res) {
   try {
     const { gameCode, name, groupId } = req.body;
     const game = await getGameByCode(gameCode);
-    const existingPlayers = await Player.find({ gameId: game._id });
+    const existingPlayers = game.players;
 
     if (existingPlayers.length >= 10) {
       return res.status(400).json({ message: "Máximo 10 jugadores permitidos" });
     }
 
-    // Validar groupId
     if (!Number.isInteger(groupId) || groupId < 1 || groupId > 5) {
       return res.status(400).json({ message: "El equipo debe ser un número entre 1 y 5" });
     }
 
-    // Contar jugadores en el equipo elegido
     const playersInGroup = existingPlayers.filter((p) => p.groupId === groupId).length;
     if (playersInGroup >= 2) {
       return res.status(400).json({ message: `El equipo ${groupId} ya tiene 2 jugadores` });
@@ -82,7 +80,7 @@ async function createPlayer(req, res) {
     const newPlayer = new Player({
       gameId: game._id,
       name: name || `Jugador ${existingPlayers.length + 1}`,
-      groupId, // Usamos el groupId proporcionado
+      groupId,
       turnOrder,
       materials,
       connectionData: clientInfo,
@@ -104,7 +102,7 @@ async function createPlayer(req, res) {
       game.players.push(savedPlayer._id);
       await game.save();
       if (game.creatorId) {
-        const creator = await Player.findById(game.creatorId);
+        const creator = game.players.find((p) => p._id.toString() === game.creatorId.toString());
         if (creator) creatorName = creator.name;
       }
     }
@@ -117,7 +115,7 @@ async function createPlayer(req, res) {
     });
     await movement.save();
 
-    broadcast(req.app.get("wss"), {
+    broadcastToGame(req.app.get("wss"), game._id.toString(), {
       type: "PLAYER_JOINED",
       gameCode,
       playerId: savedPlayer._id.toString(),
@@ -158,7 +156,7 @@ async function updatePlayer(req, res) {
 
     const updatedPlayer = await player.save();
     const game = await Game.findById(player.gameId);
-    broadcast(req.app.get("wss"), {
+    broadcastToGame(req.app.get("wss"), game._id.toString(), {
       type: "PLAYER_UPDATED",
       gameCode: game.gameCode,
       playerId: updatedPlayer._id.toString(),
@@ -176,8 +174,24 @@ async function placeMaterial(req, res) {
     const player = await Player.findById(req.params.id);
     if (!player) return res.status(404).json({ message: "Jugador no encontrado" });
 
-    const game = await Game.findById(player.gameId);
+    const game = await Game.findById(player.gameId).populate("players");
     if (!game) return res.status(404).json({ message: "Juego no encontrado" });
+
+    if (game.state !== "playing") {
+      return res.status(400).json({ message: "El juego no está en curso" });
+    }
+
+    if (game.currentTeam !== player.groupId) {
+      return res.status(400).json({ message: "No es el turno de tu equipo" });
+    }
+
+    if (player.isEliminated) {
+      return res.status(400).json({ message: "Estás eliminado y no puedes realizar acciones" });
+    }
+
+    if (player.materials.length <= 1) {
+      return res.status(400).json({ message: "No tienes suficientes materiales para colocar (mínimo 2)" });
+    }
 
     const index = player.materials.findIndex((m) => m.id === materialId);
     if (index === -1) return res.status(404).json({ message: "Material no encontrado" });
@@ -195,6 +209,8 @@ async function placeMaterial(req, res) {
       balance.isBalanced = calcWeight(balance.leftSide) === calcWeight(balance.rightSide);
     }
 
+    game.materialsPlacedThisTurn += 1;
+
     await Promise.all([player.save(), game.save()]);
 
     const movement = new Movement({
@@ -206,7 +222,7 @@ async function placeMaterial(req, res) {
     });
     await movement.save();
 
-    broadcast(req.app.get("wss"), {
+    broadcastToGame(req.app.get("wss"), game._id.toString(), {
       type: "MATERIAL_PLACED",
       gameCode: game.gameCode,
       playerId: player._id.toString(),
@@ -214,6 +230,7 @@ async function placeMaterial(req, res) {
       side,
       material,
       isBalanced: balance.isBalanced,
+      materialsPlacedThisTurn: game.materialsPlacedThisTurn,
     });
 
     res.json({
@@ -222,6 +239,7 @@ async function placeMaterial(req, res) {
       balanceType,
       side,
       isBalanced: balance.isBalanced,
+      materialsPlacedThisTurn: game.materialsPlacedThisTurn,
     });
   } catch (err) {
     handleError(res, err, 400);
@@ -233,8 +251,24 @@ async function makeGuess(req, res) {
     const player = await Player.findById(req.params.id);
     if (!player) return res.status(404).json({ message: "Jugador no encontrado" });
 
-    const game = await Game.findById(player.gameId);
+    const game = await Game.findById(player.gameId).populate("players");
     if (!game) return res.status(404).json({ message: "Juego no encontrado" });
+
+    if (game.state !== "playing") {
+      return res.status(400).json({ message: "El juego no está en curso" });
+    }
+
+    if (game.currentTeam !== player.groupId) {
+      return res.status(400).json({ message: "No es el turno de tu equipo" });
+    }
+
+    if (player.isEliminated) {
+      return res.status(400).json({ message: "Estás eliminado y no puedes realizar acciones" });
+    }
+
+    if (player.materials.length <= 1) {
+      return res.status(400).json({ message: "No tienes suficientes materiales para hacer una adivinanza (mínimo 2)" });
+    }
 
     if (!game.mainBalanceState.isBalanced) {
       return res.status(400).json({ message: "La balanza principal no está equilibrada" });
@@ -294,7 +328,7 @@ async function makeGuess(req, res) {
     });
     await movement.save();
 
-    broadcast(req.app.get("wss"), {
+    broadcastToGame(req.app.get("wss"), game._id.toString(), {
       type: "GUESS_MADE",
       gameCode: game.gameCode,
       playerId: player._id.toString(),

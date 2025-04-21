@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/game_provider.dart';
@@ -5,9 +6,77 @@ import '../models/game.dart';
 import '../models/player.dart';
 import '../widgets/game/balance/balance_widget.dart';
 import '../widgets/game/material_list_widget.dart';
+import '../widgets/game/timer_widget.dart';
+import '../widgets/game/minimal_dialog.dart';
+import '../widgets/game/guess_button_widget.dart';
+import '../widgets/game/revealed_material_widget.dart';
 
-class GameScreen extends StatelessWidget {
+class GameScreen extends StatefulWidget {
   const GameScreen({Key? key}) : super(key: key);
+
+  @override
+  _GameScreenState createState() => _GameScreenState();
+}
+
+class _GameScreenState extends State<GameScreen> {
+  Timer? _timer;
+  bool _hasShownTenSecondsWarning = false;
+  int? _lastTurnTeam;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      final gameProvider = Provider.of<GameProvider>(context, listen: false);
+      final timeRemaining = gameProvider.getAdjustedTimeRemaining();
+      if (timeRemaining <= 10 && timeRemaining > 0 &&
+          !_hasShownTenSecondsWarning) {
+        MinimalDialog.show(
+          context,
+          title: '¡Atención!',
+          message: 'Quedan $timeRemaining segundos para el turno.',
+        );
+        _hasShownTenSecondsWarning = true;
+      } else if (timeRemaining > 10) {
+        _hasShownTenSecondsWarning = false;
+      }
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  bool _canPerformAction(Game game, Player player) {
+    if (game.currentTeam != player.groupId) {
+      MinimalDialog.show(
+        context,
+        title: 'No es tu turno',
+        message: 'Es el turno del Equipo ${game.currentTeam}.',
+      );
+      return false;
+    }
+    if (player.isEliminated) {
+      MinimalDialog.show(
+        context,
+        title: 'No puedes jugar',
+        message: 'Estás eliminado y no puedes realizar acciones.',
+      );
+      return false;
+    }
+    if (player.materials.length <= 1) {
+      MinimalDialog.show(
+        context,
+        title: 'Materiales insuficientes',
+        message: 'No tienes suficientes materiales para realizar esta acción (mínimo 2).',
+      );
+      return false;
+    }
+    return true;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,6 +91,18 @@ class GameScreen extends StatelessWidget {
             body: Center(
                 child: Text('Error: No se encontró el juego o el jugador')),
           );
+        }
+
+        if (_lastTurnTeam != game.currentTeam) {
+          _lastTurnTeam = game.currentTeam;
+          _hasShownTenSecondsWarning = false;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            MinimalDialog.show(
+              context,
+              title: 'Cambio de turno',
+              message: 'Es el turno del Equipo ${game.currentTeam}.',
+            );
+          });
         }
 
         return Scaffold(
@@ -51,12 +132,18 @@ class GameScreen extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  TimerWidget(gameProvider: gameProvider),
+                  const SizedBox(height: 10),
+                  RevealedMaterialWidget(gameProvider: gameProvider),
                   const SizedBox(height: 20),
                   const Text(
                     'Balanza Principal (Visible para todos):',
-                    style: TextStyle(fontSize: 16,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   BalanceWidget(
                     isMain: true,
@@ -64,14 +151,21 @@ class GameScreen extends StatelessWidget {
                     rightItems: game.mainBalanceState.rightSide,
                     weights: game.materialWeights,
                     isBalanced: game.mainBalanceState.isBalanced,
-                    onPlace: gameProvider.placeMaterial,
+                    onPlace: (materialId, balanceType, side) {
+                      if (_canPerformAction(game, player)) {
+                        gameProvider.placeMaterial(
+                            materialId, balanceType, side);
+                      }
+                    },
                   ),
                   const SizedBox(height: 20),
                   const Text(
                     'Balanza Secundaria (Visible para tu equipo):',
-                    style: TextStyle(fontSize: 16,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   BalanceWidget(
                     isMain: false,
@@ -81,44 +175,36 @@ class GameScreen extends StatelessWidget {
                     isBalanced: game.secondaryBalanceState.isBalanced,
                     showForTeam: player.groupId,
                     players: players,
-                    onPlace: gameProvider.placeMaterial,
+                    onPlace: (materialId, balanceType, side) {
+                      if (_canPerformAction(game, player)) {
+                        gameProvider.placeMaterial(
+                            materialId, balanceType, side);
+                      }
+                    },
                   ),
                   const SizedBox(height: 20),
                   const Text(
                     'Materiales disponibles:',
-                    style: TextStyle(fontSize: 16,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   MaterialListWidget(
                     materials: player.materials,
-                    onPlace: gameProvider.placeMaterial,
+                    onPlace: (materialId, balanceType, side) {
+                      if (_canPerformAction(game, player)) {
+                        gameProvider.placeMaterial(
+                            materialId, balanceType, side);
+                      }
+                    },
                   ),
                   const SizedBox(height: 20),
-                  Center(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        final guesses = [
-                          {'type': 'red', 'weight': 5},
-                          {'type': 'yellow', 'weight': 3},
-                          {'type': 'green', 'weight': 2},
-                          {'type': 'blue', 'weight': 4},
-                          {'type': 'purple', 'weight': 1},
-                        ];
-                        gameProvider.makeGuess(guesses);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blueGrey[700],
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius
-                            .circular(12)),
-                      ),
-                      child: const Text(
-                        'Hacer Adivinanza',
-                        style: TextStyle(color: Colors.white, fontSize: 16),
-                      ),
-                    ),
+                  GuessButtonWidget(
+                    game: game,
+                    player: player,
+                    gameProvider: gameProvider,
                   ),
                 ],
               ),

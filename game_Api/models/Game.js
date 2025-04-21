@@ -20,12 +20,12 @@ const GameSchema = new mongoose.Schema(
     endTime: {
       type: Date,
     },
-    state: { // Cambiado de status a state
+    state: {
       type: String,
       enum: ["waiting", "playing", "finished"],
       default: "waiting",
     },
-    creatorId: { // Nuevo campo para el ID del creador
+    creatorId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Player",
     },
@@ -82,15 +82,32 @@ const GameSchema = new mongoose.Schema(
           playerId: { type: mongoose.Schema.Types.ObjectId, ref: "Player" },
         },
       ],
-      isBalanced: { type: Boolean, default: false }, // Añadido para consistencia
+      isBalanced: { type: Boolean, default: false },
     },
     currentPlayerIndex: {
       type: Number,
       default: 0,
     },
+    currentTeam: {
+      type: Number,
+      default: 1,
+    },
     roundTimeSeconds: {
       type: Number,
-      default: 300, // 5 minutes
+      enum: [60, 120, 180],
+      required: true,
+    },
+    timeRemaining: {
+      type: Number,
+      default: 0,
+    },
+    materialsPlacedThisTurn: {
+      type: Number,
+      default: 0,
+    },
+    lastTick: {
+      type: Date, // Marca de tiempo del último tick del temporizador
+      default: Date.now,
     },
   },
   {

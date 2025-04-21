@@ -9,30 +9,26 @@ const gameRoutes = require("./routes/gameRoutes");
 const movementRoutes = require("./routes/movementRoutes");
 const playerRoutes = require("./routes/playerRoutes");
 const { setupWebSocket } = require("./utils/websocket");
+const { restoreTimers } = require("./controllers/gameController");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server, path: "/ws" });
 
-// Guardar wss en app
 app.set("wss", wss);
 
-// Middleware
 app.use(cors());
 app.use(bodyParser.json());
 
-// Rutas de la API
 app.use("/api/games", gameRoutes(wss));
 app.use("/api/movements", movementRoutes(wss));
 app.use("/api/players", playerRoutes(wss));
 
-// Ruta de salud
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", connections: wss.clients.size });
 });
 
-// Conectar a MongoDB y arrancar el servidor
 const startServer = async () => {
   try {
     const MONGODB_URI =
@@ -43,10 +39,11 @@ const startServer = async () => {
     });
     console.log("Conectado a MongoDB");
 
-    // Configurar WebSocket
     setupWebSocket(wss);
 
-    // Iniciar servidor
+    // Restaurar temporizadores de juegos activos
+    await restoreTimers(wss);
+
     server.listen(PORT, "0.0.0.0", () => {
       const serverIp =
         require("os")

@@ -20,6 +20,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final StorageService storageService = StorageService();
   List<String> gameHistory = [];
   int? selectedTeam;
+  int? selectedTime; // Nuevo: para almacenar el tiempo seleccionado
 
   @override
   void initState() {
@@ -57,11 +58,68 @@ class _HomeScreenState extends State<HomeScreen> {
                   gameProvider.savePlayerName(name);
                   Navigator.pop(context);
                   onSuccess();
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text('Por favor, ingresa un nombre válido')),
+                  );
                 }
               },
               child: const Text('Guardar'),
             ),
           ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showTimeSelectionDialog(BuildContext context,
+      GameProvider gameProvider) async {
+    selectedTime = null; // Reiniciar el tiempo seleccionado
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Selecciona el tiempo por turno'),
+              content: DropdownButton<int>(
+                hint: const Text('Tiempo por turno (segundos)'),
+                value: selectedTime,
+                items: const [
+                  DropdownMenuItem(value: 60, child: Text('60 segundos')),
+                  DropdownMenuItem(value: 120, child: Text('120 segundos')),
+                  DropdownMenuItem(value: 180, child: Text('180 segundos')),
+                ],
+                onChanged: (value) {
+                  setState(() {
+                    selectedTime = value;
+                  });
+                },
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancelar'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    if (selectedTime != null) {
+                      Navigator.pop(context);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text('Por favor, selecciona un tiempo')),
+                      );
+                    }
+                  },
+                  child: const Text('Confirmar'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -90,8 +148,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text('Escala Game', style: titleStyle),
                 const SizedBox(height: 16),
                 Text(
-                  gameProvider.playerName != null ? 'Bienvenido, ${gameProvider
-                      .playerName}!' : '¡Juega y descubre los pesos!',
+                  gameProvider.playerName != null
+                      ? 'Bienvenido, ${gameProvider.playerName}!'
+                      : '¡Juega y descubre los pesos!',
                   style: subtitleStyle,
                 ),
                 const SizedBox(height: 48),
@@ -99,26 +158,35 @@ class _HomeScreenState extends State<HomeScreen> {
                   label: 'Crear Partida',
                   onPressed: () async {
                     await _showNameDialog(
-                        context, gameProvider, onSuccess: () async {
-                      try {
-                        await gameProvider.createGame();
-                        if (gameProvider.currentGame != null) {
-                          await _loadGameHistory();
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  LobbyScreen(
-                                      gameCode: gameProvider.currentGame!
-                                          .gameCode),
-                            ),
-                          );
+                      context,
+                      gameProvider,
+                      onSuccess: () async {
+                        await _showTimeSelectionDialog(context, gameProvider);
+                        if (selectedTime != null) {
+                          try {
+                            await gameProvider.createGame(
+                                roundTimeSeconds: selectedTime!);
+                            if (gameProvider.currentGame != null) {
+                              await _loadGameHistory();
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      LobbyScreen(
+                                          gameCode: gameProvider.currentGame!
+                                              .gameCode),
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                  content: Text('Error al crear el juego: $e')),
+                            );
+                          }
                         }
-                      } catch (e) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                            content: Text('Error al crear el juego: $e')));
-                      }
-                    });
+                      },
+                    );
                   },
                 ),
                 const SizedBox(height: 16),
@@ -150,7 +218,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                     hint: const Text('Selecciona un equipo'),
                                     value: selectedTeam,
                                     items: [1, 2, 3, 4, 5].map((team) {
-                                      return DropdownMenuItem<int>(value: team,
+                                      return DropdownMenuItem<int>(
+                                          value: team,
                                           child: Text('Equipo $team'));
                                     }).toList(),
                                     onChanged: (value) {
@@ -185,8 +254,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                             playerName);
                                       }
                                       try {
-                                        await gameProvider.joinGame(gameCode,
-                                            playerName, selectedTeam!);
+                                        await gameProvider.joinGame(
+                                            gameCode, playerName,
+                                            selectedTeam!);
                                         Navigator.pop(context);
                                         await _loadGameHistory();
                                         if (gameProvider.currentGame != null) {
@@ -202,18 +272,22 @@ class _HomeScreenState extends State<HomeScreen> {
                                           );
                                         }
                                       } catch (e) {
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(SnackBar(
-                                            content: Text(
-                                                'Error al unirse al juego: $e')));
+                                        ScaffoldMessenger
+                                            .of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                              content: Text(
+                                                  'Error al unirse al juego: $e')),
+                                        );
                                         await _loadGameHistory();
                                       }
                                     } else {
                                       ScaffoldMessenger
                                           .of(context)
                                           .showSnackBar(
-                                        const SnackBar(content: Text(
-                                            'Por favor, ingresa el código y selecciona un equipo')),
+                                        const SnackBar(
+                                            content: Text(
+                                                'Por favor, ingresa el código y selecciona un equipo')),
                                       );
                                     }
                                   },

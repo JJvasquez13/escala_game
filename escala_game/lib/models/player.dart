@@ -54,6 +54,37 @@ class Player {
       rethrow;
     }
   }
+
+  // Nuevo: método copyWith para crear una copia con valores modificados
+  Player copyWith({
+    String? id,
+    String? gameId,
+    String? name,
+    int? groupId,
+    int? turnOrder,
+    int? pieces,
+    List<PlayerMaterial>? materials,
+    bool? hasGuessed,
+    bool? isEliminated,
+    List<Guess>? guesses,
+    ConnectionData? connectionData,
+    bool? isReady,
+  }) {
+    return Player(
+      id: id ?? this.id,
+      gameId: gameId ?? this.gameId,
+      name: name ?? this.name,
+      groupId: groupId ?? this.groupId,
+      turnOrder: turnOrder ?? this.turnOrder,
+      pieces: pieces ?? this.pieces,
+      materials: materials ?? this.materials,
+      hasGuessed: hasGuessed ?? this.hasGuessed,
+      isEliminated: isEliminated ?? this.isEliminated,
+      guesses: guesses ?? this.guesses,
+      connectionData: connectionData ?? this.connectionData,
+      isReady: isReady ?? this.isReady,
+    );
+  }
 }
 
 class PlayerMaterial {

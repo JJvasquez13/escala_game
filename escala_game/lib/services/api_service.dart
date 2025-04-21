@@ -18,11 +18,12 @@ class ApiService {
     }
   }
 
-  Future<Game> createGame() async {
+  Future<Game> createGame({required int roundTimeSeconds}) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/games/'),
         headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'roundTimeSeconds': roundTimeSeconds}),
       );
       if (response.statusCode == 201) {
         return Game.fromJson(jsonDecode(response.body));
@@ -80,7 +81,7 @@ class ApiService {
     }
   }
 
-  Future<void> placeMaterial(String playerId, String materialId,
+  Future<Map<String, dynamic>> placeMaterial(String playerId, String materialId,
       String balanceType, String side) async {
     try {
       final response = await http.post(
@@ -92,9 +93,10 @@ class ApiService {
           'side': side,
         }),
       );
-      if (response.statusCode != 200) {
-        throw Exception('Error al colocar material: ${response.body}');
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
       }
+      throw Exception('Error al colocar material: ${response.body}');
     } catch (e) {
       print('Error placing material: $e');
       rethrow;

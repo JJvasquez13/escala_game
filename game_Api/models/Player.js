@@ -15,7 +15,7 @@ const PlayerSchema = new mongoose.Schema(
       type: Number,
       required: true,
       min: 1,
-      max: 5, // Limitamos a equipos del 1 al 5
+      max: 5,
     },
     turnOrder: {
       type: Number,

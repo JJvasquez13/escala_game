@@ -18,6 +18,9 @@ class GameProvider with ChangeNotifier {
   String? creatorName;
   String? _selectedMaterial;
   final List<String> _usedMaterials = [];
+  Map<String, dynamic>? revealedMaterialWeight;
+  int? lastServerTime;
+  int? localTimeRemaining;
 
   GameProvider() {
     _loadPlayerName();
@@ -49,11 +52,14 @@ class GameProvider with ChangeNotifier {
           notifyListeners();
           break;
         case 'MATERIAL_PLACED':
+          fetchGame();
+          fetchPlayers();
+          notifyListeners();
+          break;
         case 'GUESS_MADE':
           fetchGame();
           fetchPlayers();
-          if (message['type'] == 'GUESS_MADE' &&
-              message['guessResult'] == true) {
+          if (message['guessResult'] == true) {
             storageService.saveGameToHistory(
               currentGame!.gameCode,
               'Ganaste',
@@ -66,10 +72,11 @@ class GameProvider with ChangeNotifier {
           currentGame = Game.fromJson(message['gameState']);
           creatorId = message['creatorId'] ?? creatorId;
           creatorName = message['creatorName'] ?? creatorName;
+          localTimeRemaining = currentGame!.timeRemaining;
           notifyListeners();
           break;
         case 'PLAYER_LEFT':
-          fetchPlayers(); // Actualizar lista de jugadores si alguien sale
+          fetchPlayers();
           notifyListeners();
           break;
         case 'GAME_ENDED':
@@ -79,22 +86,84 @@ class GameProvider with ChangeNotifier {
             'Terminado',
             currentPlayer!.groupId,
           );
+          localTimeRemaining = 0;
           notifyListeners();
+          break;
+        case 'TIMER_UPDATE':
+          if (currentGame != null &&
+              currentGame!.gameCode == message['gameCode']) {
+            currentGame = Game.fromJson({
+              ...currentGame!.toJson(),
+              'timeRemaining': message['timeRemaining'],
+            });
+            lastServerTime = message['serverTime'];
+            localTimeRemaining = currentGame!.timeRemaining;
+            notifyListeners();
+          }
+          break;
+        case 'TURN_CHANGED':
+          if (currentGame != null &&
+              currentGame!.gameCode == message['gameCode']) {
+            currentGame = Game.fromJson({
+              ...currentGame!.toJson(),
+              'currentTeam': message['currentTeam'],
+              'timeRemaining': message['timeRemaining'],
+            });
+            lastServerTime = message['serverTime'];
+            localTimeRemaining = currentGame!.timeRemaining;
+            notifyListeners();
+          }
+          break;
+        case 'PENALTY_APPLIED':
+          fetchGame();
+          fetchPlayers();
+          notifyListeners();
+          break;
+        case 'MATERIAL_WEIGHT_REVEALED':
+          if (currentGame != null &&
+              currentGame!.gameCode == message['gameCode']) {
+            revealedMaterialWeight = {
+              'material': message['material'],
+              'weight': message['weight'],
+            };
+            notifyListeners();
+          }
+          break;
+        case 'PLAYER_ELIMINATED':
+          if (currentGame != null &&
+              currentGame!.gameCode == message['gameCode']) {
+            final playerId = message['playerId'];
+            final playerIndex = players.indexWhere((p) => p.id == playerId);
+            if (playerIndex != -1) {
+              // Actualizar el jugador en la lista players
+              players[playerIndex] =
+                  players[playerIndex].copyWith(isEliminated: true);
+              // Si el jugador eliminado es el currentPlayer, actualizarlo también
+              if (playerId == currentPlayer!.id) {
+                currentPlayer = currentPlayer!.copyWith(isEliminated: true);
+              }
+              notifyListeners();
+            }
+          }
           break;
       }
     });
   }
 
-  Future<void> createGame() async {
+  Future<void> createGame({int roundTimeSeconds = 60}) async {
     try {
       if (playerName == null) {
         throw Exception('Por favor, ingresa un nombre antes de crear un juego');
       }
-      currentGame = await apiService.createGame();
+      currentGame =
+      await apiService.createGame(roundTimeSeconds: roundTimeSeconds);
       await joinGame(currentGame!.gameCode, playerName!, 1);
       creatorId = currentPlayer!.id;
       creatorName = currentPlayer!.name;
       _usedMaterials.clear();
+      revealedMaterialWeight = null;
+      localTimeRemaining = null;
+      lastServerTime = null;
       notifyListeners();
     } catch (e) {
       print('Error al crear el juego: $e');
@@ -109,6 +178,9 @@ class GameProvider with ChangeNotifier {
         currentPlayer = null;
         players.clear();
         _usedMaterials.clear();
+        revealedMaterialWeight = null;
+        localTimeRemaining = null;
+        lastServerTime = null;
       }
       currentGame = await apiService.getGame(gameCode);
       currentPlayer =
@@ -118,7 +190,6 @@ class GameProvider with ChangeNotifier {
         'gameCode': gameCode,
         'playerId': currentPlayer!.id,
       });
-      // Guardamos como "En curso" en lugar de "Exitoso"
       await storageService.saveGameToHistory(gameCode, 'En curso', groupId);
       await fetchPlayers();
       _usedMaterials.clear();
@@ -134,6 +205,7 @@ class GameProvider with ChangeNotifier {
     try {
       if (currentGame != null) {
         currentGame = await apiService.getGame(currentGame!.gameCode);
+        localTimeRemaining = currentGame!.timeRemaining;
         notifyListeners();
       }
     } catch (e) {
@@ -145,6 +217,13 @@ class GameProvider with ChangeNotifier {
     try {
       if (currentGame != null) {
         players = await apiService.getPlayers(currentGame!.id);
+        if (currentPlayer != null) {
+          final updatedPlayer = players.firstWhere(
+                (p) => p.id == currentPlayer!.id,
+            orElse: () => currentPlayer!,
+          );
+          currentPlayer = updatedPlayer;
+        }
         notifyListeners();
       }
     } catch (e) {
@@ -157,9 +236,23 @@ class GameProvider with ChangeNotifier {
   Future<void> placeMaterial(String materialId, String balanceType,
       String side) async {
     try {
-      await apiService.placeMaterial(
+      if (currentGame!.currentTeam != currentPlayer!.groupId) {
+        throw Exception('No es el turno de tu equipo');
+      }
+      if (currentPlayer!.isEliminated) {
+        throw Exception('Estás eliminado y no puedes realizar acciones');
+      }
+      if (currentPlayer!.materials.length <= 1) {
+        throw Exception(
+            'No tienes suficientes materiales para colocar (mínimo 2)');
+      }
+      final result = await apiService.placeMaterial(
           currentPlayer!.id, materialId, balanceType, side);
       _usedMaterials.add(materialId);
+      currentGame = Game.fromJson({
+        ...currentGame!.toJson(),
+        'materialsPlacedThisTurn': result['materialsPlacedThisTurn'],
+      });
       notifyListeners();
     } catch (e) {
       print('Error al colocar material: $e');
@@ -169,7 +262,23 @@ class GameProvider with ChangeNotifier {
 
   Future<void> makeGuess(List<Map<String, dynamic>> guesses) async {
     try {
-      await apiService.makeGuess(currentPlayer!.id, guesses);
+      if (currentGame!.currentTeam != currentPlayer!.groupId) {
+        throw Exception('No es el turno de tu equipo');
+      }
+      if (currentPlayer!.isEliminated) {
+        throw Exception('Estás eliminado y no puedes realizar acciones');
+      }
+      if (currentPlayer!.materials.length <= 1) {
+        throw Exception(
+            'No tienes suficientes materiales para hacer una adivinanza (mínimo 2)');
+      }
+      final result = await apiService.makeGuess(currentPlayer!.id, guesses);
+      currentPlayer = currentPlayer!.copyWith(
+        pieces: result['newPiecesTotal'],
+        hasGuessed: true,
+      );
+      currentGame = Game.fromJson(result['gameState']);
+      notifyListeners();
     } catch (e) {
       print('Error al hacer la adivinanza: $e');
       rethrow;
@@ -209,7 +318,6 @@ class GameProvider with ChangeNotifier {
 
   List<String> get usedMaterials => _usedMaterials;
 
-  // Metodo para salir del juego (opcional, si el líder se va)
   Future<void> leaveGame() async {
     try {
       if (currentGame != null && currentPlayer != null) {
@@ -222,11 +330,26 @@ class GameProvider with ChangeNotifier {
         currentPlayer = null;
         players.clear();
         _usedMaterials.clear();
+        revealedMaterialWeight = null;
+        localTimeRemaining = null;
+        lastServerTime = null;
         notifyListeners();
       }
     } catch (e) {
       print('Error al salir del juego: $e');
       rethrow;
     }
+  }
+
+  int getAdjustedTimeRemaining() {
+    if (lastServerTime == null || localTimeRemaining == null) {
+      return currentGame?.timeRemaining ?? 0;
+    }
+    final currentTime = DateTime
+        .now()
+        .millisecondsSinceEpoch;
+    final elapsedSinceLastUpdate = (currentTime - lastServerTime!) ~/ 1000;
+    return (localTimeRemaining! - elapsedSinceLastUpdate).clamp(
+        0, currentGame!.roundTimeSeconds);
   }
 }

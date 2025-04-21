@@ -13,6 +13,27 @@ function broadcast(wss, data) {
   });
 }
 
+// Enviar mensaje solo a los jugadores de un juego específico
+function broadcastToGame(wss, gameId, data) {
+  const message = JSON.stringify(data);
+  const playerIds = new Set();
+
+  // Encontrar todos los jugadores del juego
+  for (const [playerId, client] of connectedPlayers.entries()) {
+    const player = client.player; // Asumimos que hemos almacenado el jugador en el cliente
+    if (player && player.gameId.toString() === gameId) {
+      playerIds.add(playerId);
+    }
+  }
+
+  // Enviar mensaje solo a los jugadores del juego
+  for (const [playerId, client] of connectedPlayers.entries()) {
+    if (playerIds.has(playerId) && client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  }
+}
+
 function sendToPlayer(playerId, data) {
   const ws = connectedPlayers.get(playerId);
   if (ws && ws.readyState === WebSocket.OPEN) {
@@ -31,43 +52,46 @@ function setupWebSocket(wss) {
         const data = JSON.parse(message.toString());
         console.log(`Mensaje recibido: ${data.type} de jugador ${data.playerId}`);
 
-        // Asegurarnos de que el mensaje incluya un playerId (el _id de MongoDB)
         if (!data.playerId) {
           console.error("Mensaje WebSocket:", data);
           return;
         }
 
-        // Registrar al jugador en connectedPlayers usando su _id de MongoDB
+        // Almacenar el jugador en el cliente WebSocket
         if (!connectedPlayers.has(data.playerId)) {
-          connectedPlayers.set(data.playerId, ws);
-          console.log(`Jugador ${data.playerId} registrado en connectedPlayers`);
+          const player = await Player.findById(data.playerId);
+          if (player) {
+            connectedPlayers.set(data.playerId, ws);
+            ws.player = player; // Almacenar el jugador en el cliente para referencia
+            console.log(`Jugador ${data.playerId} registrado en connectedPlayers`);
+          } else {
+            console.error(`Jugador ${data.playerId} no encontrado`);
+            return;
+          }
         }
 
         switch (data.type) {
           case "JOIN_GAME":
-            // Este evento ya se maneja en playerRoutes.js, pero podemos loguearlo
             console.log(`Jugador ${data.playerId} se unió al juego ${data.gameCode}`);
             break;
 
           case "START_GAME":
-            // Este evento se maneja en gameRoutes.js, pero podemos loguearlo
             console.log(`Juego ${data.gameCode} iniciado por ${data.playerId}`);
             break;
 
           case "GAME_ACTION":
             const { gameCode: actionGameCode, actionType, actionData } = data;
-            const actionGame = await Game.findOne({ gameCode: actionGameCode });
+            const actionGame = await Game.findOne({ gameCode: actionGameCode }).populate("players");
             if (!actionGame || actionGame.state !== "playing") return;
 
             const movement = new Movement({
               gameId: actionGame._id,
-              playerId: data.playerId, // Usamos el _id de MongoDB enviado desde el frontend
+              playerId: data.playerId,
               actionType,
               data: actionData,
             });
             await movement.save();
 
-            // Actualizar estado del juego según la acción
             if (actionType === "PLACE_MATERIAL") {
               const { balanceType, side, material } = actionData;
               const balance =
@@ -86,10 +110,11 @@ function setupWebSocket(wss) {
               balance.isBalanced =
                 calcWeight(balance.leftSide) === calcWeight(balance.rightSide);
 
+              actionGame.materialsPlacedThisTurn += 1;
               await actionGame.save();
             }
 
-            broadcast(wss, {
+            broadcastToGame(wss, actionGame._id.toString(), {
               type: "GAME_UPDATE",
               gameCode: actionGameCode,
               gameState: actionGame,
@@ -102,7 +127,6 @@ function setupWebSocket(wss) {
     });
 
     ws.on("close", async () => {
-      // Buscar el playerId asociado a este WebSocket
       let disconnectedPlayerId = null;
       for (const [playerId, client] of connectedPlayers.entries()) {
         if (client === ws) {
@@ -116,13 +140,20 @@ function setupWebSocket(wss) {
         console.log(`Jugador ${disconnectedPlayerId} desconectado`);
         const player = await Player.findById(disconnectedPlayerId);
         if (player) {
-          const game = await Game.findOne({ players: player._id });
+          const game = await Game.findOne({ players: player._id }).populate("players");
           if (game) {
-            broadcast(wss, {
+            broadcastToGame(wss, game._id.toString(), {
               type: "PLAYER_LEFT",
               gameCode: game.gameCode,
               playerId: disconnectedPlayerId,
             });
+
+            // Verificar si el equipo actual se quedó sin jugadores
+            const activeTeams = [...new Set(game.players.map((p) => p.groupId))];
+            if (!activeTeams.includes(game.currentTeam)) {
+              // Si el equipo actual está vacío, pasar al siguiente turno
+              await require("./gameController").endTurn(game, wss);
+            }
           }
         }
       }
@@ -130,4 +161,4 @@ function setupWebSocket(wss) {
   });
 }
 
-module.exports = { setupWebSocket, broadcast };
+module.exports = { setupWebSocket, broadcast, broadcastToGame };
