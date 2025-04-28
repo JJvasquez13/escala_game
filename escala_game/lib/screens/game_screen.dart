@@ -29,12 +29,32 @@ class _GameScreenState extends State<GameScreen> {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       final gameProvider = Provider.of<GameProvider>(context, listen: false);
       final timeRemaining = gameProvider.getAdjustedTimeRemaining();
-      if (timeRemaining <= 10 && timeRemaining > 0 &&
-          !_hasShownTenSecondsWarning) {
+      final game = gameProvider.currentGame;
+      
+      // Detectar cambio de turno
+      if (game != null && _lastTurnTeam != game.currentTeam) {
+        _lastTurnTeam = game.currentTeam;
+        // Reiniciar la bandera cuando cambia el turno
+        _hasShownTenSecondsWarning = false;
+      }
+      
+      // Solo mostrar la alerta de 10 segundos si:
+      // 1. Quedan 10 segundos o menos
+      // 2. No se ha mostrado ya la alerta
+      // 3. El juego está activo
+      // 4. La balanza principal NO está equilibrada
+      // 5. No estamos en fase de adivinanza (cuando la balanza ya está equilibrada)
+      if (timeRemaining <= 10 && 
+          timeRemaining > 0 &&
+          !_hasShownTenSecondsWarning && 
+          game != null && 
+          game.state == 'playing' && 
+          !game.mainBalanceState.isBalanced) {
+        
         MinimalDialog.show(
           context,
           title: '¡Atención!',
-          message: 'Quedan $timeRemaining segundos para el turno.',
+          message: 'Quedan $timeRemaining segundos para equilibrar la balanza.',
         );
         _hasShownTenSecondsWarning = true;
       } else if (timeRemaining > 10) {
@@ -138,7 +158,7 @@ class _GameScreenState extends State<GameScreen> {
                   RevealedMaterialWidget(gameProvider: gameProvider),
                   const SizedBox(height: 20),
                   const Text(
-                    'Balanza Principal (Visible para todos):',
+                    'Balanza Principal:',
                     style: TextStyle(
                       fontSize: 16,
                       color: Colors.white,
@@ -160,7 +180,7 @@ class _GameScreenState extends State<GameScreen> {
                   ),
                   const SizedBox(height: 20),
                   const Text(
-                    'Balanza Secundaria (Visible para tu equipo):',
+                    'Balanza Secundaria:',
                     style: TextStyle(
                       fontSize: 16,
                       color: Colors.white,

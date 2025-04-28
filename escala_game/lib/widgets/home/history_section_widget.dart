@@ -7,10 +7,14 @@ import '../../screens/lobby_screen.dart';
 class HistorySectionWidget extends StatefulWidget {
   final List<String> gameHistory;
   final VoidCallback onClearHistory;
+  final Function(String)? onGameSelected;
 
-  const HistorySectionWidget(
-      {Key? key, required this.gameHistory, required this.onClearHistory})
-      : super(key: key);
+  const HistorySectionWidget({
+      Key? key, 
+      required this.gameHistory, 
+      required this.onClearHistory,
+      this.onGameSelected,
+  }) : super(key: key);
 
   @override
   _HistorySectionWidgetState createState() => _HistorySectionWidgetState();

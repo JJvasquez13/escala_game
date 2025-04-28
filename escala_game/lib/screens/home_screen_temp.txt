@@ -323,50 +323,30 @@ class _HomeScreenState extends State<HomeScreen> {
                                               labelText: 'Código del Juego'),
                                         ),
                                         const SizedBox(height: 16),
-                                        Column(
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
                                           children: [
-                                            const Text('Selecciona tu equipo:',
+                                            const Text('Equipo:',
                                                 style: TextStyle(
-                                                    color: Colors.white,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 16)),
-                                            const SizedBox(height: 8),
-                                            Wrap(
-                                              spacing: 8.0,
-                                              alignment: WrapAlignment.center,
-                                              children: [
-                                                for (int i = 1; i <= 5; i++)
-                                                  InkWell(
-                                                    onTap: () {
-                                                      setState(() => selectedTeam = i);
-                                                    },
-                                                    child: Container(
-                                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                                      decoration: BoxDecoration(
-                                                        color: selectedTeam == i
-                                                            ? Colors.blue.shade700
-                                                            : Colors.blue.shade900,
-                                                        borderRadius: BorderRadius.circular(20),
-                                                        border: Border.all(
-                                                          color: selectedTeam == i
-                                                              ? Colors.white
-                                                              : Colors.transparent,
-                                                          width: 2,
-                                                        ),
-                                                      ),
-                                                      child: Text(
-                                                        'Equipo $i',
-                                                        style: TextStyle(
-                                                          color: Colors.white,
-                                                          fontWeight: selectedTeam == i
-                                                              ? FontWeight.bold
-                                                              : FontWeight.normal,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                              ],
+                                                    fontWeight: FontWeight.bold)),
+                                            Radio(
+                                              value: 1,
+                                              groupValue: selectedTeam,
+                                              onChanged: (value) {
+                                                setState(
+                                                    () => selectedTeam = value as int);
+                                              },
                                             ),
+                                            const Text('1'),
+                                            Radio(
+                                              value: 2,
+                                              groupValue: selectedTeam,
+                                              onChanged: (value) {
+                                                setState(
+                                                    () => selectedTeam = value as int);
+                                              },
+                                            ),
+                                            const Text('2'),
                                           ],
                                         ),
                                       ],
@@ -402,9 +382,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                                 }
                                                 try {
                                                   await gameProvider.joinGame(
-                                                      gameCode,
-                                                      playerName,
-                                                      selectedTeam!);
+                                                      gameCode: gameCode,
+                                                      playerName: playerName,
+                                                      groupId: selectedTeam!);
                                                   Navigator.pop(context);
                                                   await _loadGameHistory();
                                                   if (gameProvider.currentGame != null) {
@@ -465,9 +445,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                   onJoinGame: (String gameCode) async {
                                     try {
                                       await gameProvider.joinGame(
-                                        gameCode,
-                                        gameProvider.playerName!,
-                                        selectedTeam ?? 1,
+                                        gameCode: gameCode,
+                                        playerName: gameProvider.playerName!,
+                                        groupId: selectedTeam ?? 1,
                                       );
                                       
                                       if (mounted) {
@@ -496,12 +476,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 const Spacer(),
                 HistorySectionWidget(
                   gameHistory: gameHistory,
-                  onClearHistory: () async {
-                    setState(() {
-                      gameHistory.clear();
-                    });
-                    await storageService.clearGameHistory();
-                  },
                   onGameSelected: (gameCode) async {
                     gameCodeController.text = gameCode;
                     await _showNameDialog(
@@ -510,9 +484,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       onSuccess: () async {
                         try {
                           await gameProvider.joinGame(
-                            gameCode,
-                            gameProvider.playerName!,
-                            selectedTeam ?? 1,
+                            gameCode: gameCode,
+                            playerName: gameProvider.playerName!,
+                            groupId: selectedTeam ?? 1,
                           );
                           Navigator.push(
                             context,

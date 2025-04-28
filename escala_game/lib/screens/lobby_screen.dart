@@ -9,6 +9,20 @@ class LobbyScreen extends StatelessWidget {
 
   const LobbyScreen({Key? key, required this.gameCode}) : super(key: key);
 
+  // Método para cambiar de equipo
+  static Future<void> _changeTeam(BuildContext context, GameProvider gameProvider, int newTeam) async {
+    if (gameProvider.currentPlayer == null) return;
+    if (gameProvider.currentPlayer!.groupId == newTeam) return; // No hacer nada si ya está en ese equipo
+    
+    try {
+      await gameProvider.changeTeam(newTeam);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al cambiar de equipo: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<GameProvider>(
@@ -39,12 +53,73 @@ class LobbyScreen extends StatelessWidget {
             ),
             child: Column(
               children: [
-                const Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: Text(
-                    'Jugadores Conectados',
-                    style: TextStyle(fontSize: 20,
-                        color: Colors.white), // Texto blanco para contraste
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      const Text(
+                        'Jugadores Conectados',
+                        style: TextStyle(fontSize: 20, color: Colors.white),
+                      ),
+                      const SizedBox(height: 16),
+                      if (gameProvider.currentPlayer != null)
+                        Column(
+                          children: [
+                            const Text(
+                              'Cambia tu equipo:',
+                              style: TextStyle(fontSize: 16, color: Colors.white70),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8.0,
+                              alignment: WrapAlignment.center,
+                              children: [
+                                for (int i = 1; i <= 5; i++)
+                                  InkWell(
+                                    onTap: () async {
+                                      // No permitir cambio si el juego ya comenzó
+                                      if (gameProvider.currentGame?.state == 'waiting') {
+                                        try {
+                                          await _changeTeam(context, gameProvider, i);
+                                        } catch (e) {
+                                          if (context.mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(content: Text('Error al cambiar de equipo: $e')),
+                                            );
+                                          }
+                                        }
+                                      }
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      decoration: BoxDecoration(
+                                        color: gameProvider.currentPlayer?.groupId == i
+                                            ? Colors.blue.shade700
+                                            : Colors.blue.shade900,
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(
+                                          color: gameProvider.currentPlayer?.groupId == i
+                                              ? Colors.white
+                                              : Colors.transparent,
+                                          width: 2,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        'Equipo $i',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: gameProvider.currentPlayer?.groupId == i
+                                              ? FontWeight.bold
+                                              : FontWeight.normal,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                    ],
                   ),
                 ),
                 Expanded(

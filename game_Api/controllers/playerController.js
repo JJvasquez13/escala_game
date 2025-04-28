@@ -143,6 +143,7 @@ async function updatePlayer(req, res) {
       "guesses",
       "connectionData",
       "isReady",
+      "groupId",
     ];
     fields.forEach((field) => {
       if (req.body[field] !== undefined) {
@@ -350,6 +351,53 @@ async function makeGuess(req, res) {
   }
 }
 
+async function updatePlayerTeam(req, res) {
+try {
+  const { gameCode, playerId } = req.params;
+  const { groupId } = req.body;
+  
+  if (!groupId || groupId < 1 || groupId > 5) {
+    return res.status(400).json({ message: "El equipo debe estar entre 1 y 5" });
+  }
+
+  // Verificar que el juego existe y obtener su estado
+  const game = await getGameByCode(gameCode);
+  
+  // Solo permitir cambios cuando el juego esté en estado de espera
+  if (game.state !== "waiting") {
+    return res.status(400).json({ message: "No se puede cambiar de equipo una vez iniciada la partida" });
+  }
+
+  // Encontrar y actualizar el jugador
+  const player = await Player.findById(playerId);
+  if (!player) {
+    return res.status(404).json({ message: "Jugador no encontrado" });
+  }
+
+  // Verificar que el jugador pertenece al juego indicado
+  if (player.gameId.toString() !== game._id.toString()) {
+    return res.status(400).json({ message: "El jugador no pertenece a este juego" });
+  }
+  
+  // Actualizar el equipo del jugador
+  player.groupId = groupId;
+  await player.save();
+  
+  // Notificar a todos los clientes sobre el cambio de equipo
+  broadcastToGame(game.gameCode, {
+    type: "PLAYER_TEAM_CHANGED",
+    gameCode: game.gameCode,
+    playerId: player._id,
+    playerName: player.name,
+    newTeam: groupId,
+  });
+  
+  res.json(player);
+} catch (err) {
+  handleError(res, err);
+}
+}
+
 module.exports = {
   getAllPlayers,
   getPlayersByGame,
@@ -358,4 +406,5 @@ module.exports = {
   updatePlayer,
   placeMaterial,
   makeGuess,
+  updatePlayerTeam,
 };

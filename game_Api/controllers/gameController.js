@@ -34,6 +34,31 @@ async function getAllGames(req, res) {
   }
 }
 
+async function getRecentGames(req, res) {
+  try {
+    // Buscar partidas creadas en los últimos 5 minutos
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    
+    const recentGames = await Game.find({
+      createdAt: { $gte: fiveMinutesAgo },
+      state: 'waiting'  // Solo partidas que aún no han comenzado
+    }).sort({ createdAt: -1 });
+    
+    const formattedGames = recentGames.map(game => ({
+      id: game._id,
+      gameCode: game.gameCode,
+      createdAt: game.createdAt,
+      playerCount: game.players.length,
+      timeRemaining: Math.floor((Date.now() - new Date(game.createdAt).getTime()) / 1000),
+      maxTime: 5 * 60 // 5 minutos en segundos
+    }));
+    
+    res.json(formattedGames);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+}
+
 function getGame(req, res) {
   const game = req.game;
   if (game.state === "playing" && game.timeRemaining > 0) {
@@ -109,6 +134,18 @@ async function startGame(req, res) {
     game.startTime = new Date();
     game.timeRemaining = game.roundTimeSeconds;
     game.lastTick = new Date();
+    
+    // Asegurar que el primer turno sea siempre para el equipo 1
+    const activePlayers = game.players.filter(p => !p.isEliminated);
+    const activeTeams = [...new Set(activePlayers.map(p => p.groupId))].sort((a, b) => a - b);
+    
+    // Si existe el equipo 1 entre los equipos activos, asignarle el primer turno
+    if (activeTeams.includes(1)) {
+      game.currentTeam = 1;
+    } else {
+      // Si no existe el equipo 1, asignar al equipo con el número más bajo
+      game.currentTeam = activeTeams[0];
+    }
     await game.save();
 
     // Seleccionar un material aleatorio y revelar su peso
@@ -153,20 +190,38 @@ async function updateGame(req, res) {
       "timeRemaining",
       "materialsPlacedThisTurn",
       "lastTick",
+      "scores", // Añadido para mantener las puntuaciones
     ];
 
+    // Actualizar campos
     updatableFields.forEach((field) => {
       if (req.body[field] !== undefined) {
         req.game[field] = req.body[field];
       }
     });
 
+    // Si está definiendo un ganador y cambiando el estado a 'finished'
+    const isGameFinished = req.body.state === 'finished' && req.body.winners;
+    
     const updatedGame = await req.game.save();
+    
+    // Enviar evento estándar de actualización
     broadcastToGame(req.app.get("wss"), updatedGame._id.toString(), {
       type: "GAME_UPDATED",
       gameCode: req.params.id,
       gameState: updatedGame,
     });
+    
+    // Si el juego ha finalizado y tiene ganador, enviar evento especial
+    if (isGameFinished) {
+      broadcastToGame(req.app.get("wss"), updatedGame._id.toString(), {
+        type: "GAME_WINNER_DECLARED",
+        gameCode: req.params.id,
+        winner: req.body.winners[0], // Equipo ganador
+        gameState: updatedGame,
+      });
+    }
+    
     res.json(updatedGame);
   } catch (err) {
     res.status(400).json({ message: err.message });
@@ -399,6 +454,7 @@ async function restoreTimers(wss) {
 module.exports = {
   loadGame,
   getAllGames,
+  getRecentGames,
   getGame,
   createGame,
   startGame,

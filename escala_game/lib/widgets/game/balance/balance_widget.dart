@@ -59,6 +59,15 @@ class _BalanceWidgetState extends State<BalanceWidget>
         oldWidget.rightItems != widget.rightItems) {
       _updateTiltAndOffsets();
     }
+    
+    // Pause timer when main balance is balanced
+    if (widget.isMain && widget.isBalanced && !oldWidget.isBalanced) {
+      final gameProvider = Provider.of<GameProvider>(context, listen: false);
+      gameProvider.pauseTimer();
+    } else if (widget.isMain && !widget.isBalanced && oldWidget.isBalanced) {
+      final gameProvider = Provider.of<GameProvider>(context, listen: false);
+      gameProvider.resumeTimer();
+    }
   }
 
   void _updateTiltAndOffsets() {
@@ -125,7 +134,7 @@ class _BalanceWidgetState extends State<BalanceWidget>
       return const SizedBox(
         height: 250,
         child: Center(
-          child: Text('Balanza secundaria visible solo para tu equipo',
+          child: Text('Balanza secundaria',
               style: TextStyle(color: Colors.grey)),
         ),
       );
@@ -140,25 +149,69 @@ class _BalanceWidgetState extends State<BalanceWidget>
       child: Stack(
         alignment: Alignment.center,
         children: [
+          // Base mejorada de la balanza
           Positioned(
             bottom: 0,
             child: Container(
-              width: 120,
-              height: 30,
+              width: 150,
+              height: 40,
               decoration: BoxDecoration(
-                color: widget.isMain ? Colors.amber[800]! : Colors.grey[600]!,
-                borderRadius: BorderRadius.circular(15),
-                boxShadow: [defaultShadow()],
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: widget.isMain 
+                    ? [const Color(0xFFC9A063), const Color(0xFF8C6D43)]
+                    : [const Color(0xFF909090), const Color(0xFF606060)],
+                ),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(4),
+                  topRight: Radius.circular(4),
+                  bottomLeft: Radius.circular(15),
+                  bottomRight: Radius.circular(15),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.4),
+                    blurRadius: 10,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Container(
+                  width: 100,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.black26,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
               ),
             ),
           ),
+          // Soporte central de la balanza
           Positioned(
-            bottom: 30,
-            child: CustomPaint(
-              painter: TrianglePainter(
-                  color: widget.isMain ? Colors.amber[700]! : Colors
-                      .grey[500]!),
-              child: const SizedBox(width: 40, height: 60),
+            bottom: 40,
+            child: Container(
+              width: 30,
+              height: 70,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: widget.isMain 
+                    ? [const Color(0xFFD9C27E), const Color(0xFFBFA36F), const Color(0xFF9E8555)]
+                    : [const Color(0xFFAAAAAA), const Color(0xFF8E8E8E), const Color(0xFF666666)],
+                ),
+                borderRadius: BorderRadius.circular(4),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.25),
+                    blurRadius: 5,
+                    offset: const Offset(2, 2),
+                  ),
+                ],
+              ),
             ),
           ),
           AnimatedBuilder(
@@ -172,32 +225,87 @@ class _BalanceWidgetState extends State<BalanceWidget>
                     Positioned(
                       top: 50,
                       child: Container(
-                        width: 200,
-                        height: 20,
+                        width: 260,
+                        height: 16,
                         decoration: BoxDecoration(
-                          color: widget.isMain ? Colors.amber[600]! : Colors
-                              .grey[400]!,
-                          borderRadius: BorderRadius.circular(10),
-                          boxShadow: [defaultShadow()],
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: widget.isMain 
+                              ? [const Color(0xFFD9C27E), const Color(0xFFBFA36F), const Color(0xFF9E8555)]
+                              : [const Color(0xFFAAAAAA), const Color(0xFF8E8E8E), const Color(0xFF666666)],
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.4),
+                              blurRadius: 5,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child: Container(
+                            width: 250,
+                            height: 2,
+                            color: Colors.black12,
+                          ),
                         ),
                       ),
                     ),
                     if (widget.isMain && widget.isBalanced)
                       Positioned(
                         top: 75,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.green,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Text(
-                            '¡Balanceado!',
-                            style: TextStyle(color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12),
-                          ),
+                        child: Column(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.green,
+                                borderRadius: BorderRadius.circular(8),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.3),
+                                    blurRadius: 5,
+                                    offset: const Offset(0, 2),
+                                  )
+                                ],
+                              ),
+                              child: const Text(
+                                '¡Balanceado!',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.amber,
+                                borderRadius: BorderRadius.circular(8),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.2),
+                                    blurRadius: 3,
+                                    offset: const Offset(0, 1),
+                                  )
+                                ],
+                              ),
+                              child: const Text(
+                                'Fase de adivinanza iniciada',
+                                style: TextStyle(
+                                  color: Colors.black87,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     Positioned(

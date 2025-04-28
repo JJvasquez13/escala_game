@@ -48,20 +48,76 @@ class ApiService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getRecentGames() async {
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/games/recent/list'));
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        return data.map((game) => game as Map<String, dynamic>).toList();
+      }
+      throw Exception('Error al obtener partidas recientes: ${response.body}');
+    } catch (e) {
+      print('Error getting recent games: $e');
+      rethrow;
+    }
+  }
+
   Future<Player> createPlayer(String gameCode, String name, int groupId) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/players/'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(
-            {'gameCode': gameCode, 'name': name, 'groupId': groupId}),
+        body: jsonEncode({
+          'gameCode': gameCode,
+          'name': name,
+          'groupId': groupId
+        }),
       );
       if (response.statusCode == 201) {
         return Player.fromJson(jsonDecode(response.body));
       }
-      throw Exception('Error al crear el jugador: ${response.body}');
+      throw Exception('Error al crear jugador: ${response.body}');
     } catch (e) {
       print('Error creating player: $e');
+      rethrow;
+    }
+  }
+
+  Future<Player> updatePlayerTeam(String gameCode, String playerId, int newTeam) async {
+    try {
+      // URL corregida para que coincida con la ruta en el backend
+      final response = await http.put(
+        Uri.parse('$baseUrl/games/$gameCode/players/$playerId/team'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'groupId': newTeam
+        }),
+      );
+      if (response.statusCode == 200) {
+        return Player.fromJson(jsonDecode(response.body));
+      }
+      throw Exception('Error al actualizar equipo del jugador: ${response.body}');
+    } catch (e) {
+      print('Error updating player team: $e');
+      rethrow;
+    }
+  }
+  
+  // Método para actualizar un juego existente
+  Future<Game> updateGame(String gameCode, Map<String, dynamic> updateData) async {
+    try {
+      final response = await http.patch(
+        Uri.parse('$baseUrl/games/$gameCode'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(updateData),
+      );
+      
+      if (response.statusCode == 200) {
+        return Game.fromJson(jsonDecode(response.body));
+      }
+      throw Exception('Error al actualizar el juego: ${response.body}');
+    } catch (e) {
+      print('Error updating game: $e');
       rethrow;
     }
   }
